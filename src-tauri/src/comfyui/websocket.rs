@@ -1,12 +1,14 @@
 use base64::Engine;
 use futures_util::StreamExt;
 use std::time::Instant;
+#[cfg(feature = "desktop")]
 use tauri::{AppHandle, Emitter};
 use tokio_tungstenite::connect_async;
 
 use crate::error::AppError;
 use crate::state::AppState;
 
+#[cfg(feature = "desktop")]
 pub async fn connect_websocket(
     app_handle: AppHandle,
     state: &AppState,

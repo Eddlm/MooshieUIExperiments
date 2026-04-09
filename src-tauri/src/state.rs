@@ -6,9 +6,11 @@ use tokio::sync::{broadcast, Mutex, Notify, RwLock};
 use tokio::task::JoinHandle;
 
 use crate::config::AppConfig;
+#[cfg(feature = "desktop")]
 use crate::interrogator::InterrogatorState;
 
 /// Stored Tauri AppHandle so the headless web server can control the window.
+#[cfg(feature = "desktop")]
 pub type TauriAppHandle = tauri::AppHandle;
 
 /// An event that can be sent to both Tauri and browser SSE clients.
@@ -227,12 +229,14 @@ pub struct AppState {
     pub ws_handle: Mutex<Option<JoinHandle<()>>>,
     pub client_id: String,
     pub http_client: reqwest::Client,
+    #[cfg(feature = "desktop")]
     pub interrogator: Arc<RwLock<InterrogatorState>>,
     /// Broadcast channel for SSE events in browser mode.
     pub event_tx: broadcast::Sender<BroadcastEvent>,
     /// Timestamp of last heartbeat from browser client.
     pub last_heartbeat: Mutex<std::time::Instant>,
     /// Tauri AppHandle — set after app setup so the web server can show/hide the window.
+    #[cfg(feature = "desktop")]
     pub app_handle: Mutex<Option<TauriAppHandle>>,
     /// Set to true when switching from browser mode to app mode.
     /// Prevents the heartbeat watchdog from killing the process.
@@ -252,9 +256,11 @@ impl AppState {
             ws_handle: Mutex::new(None),
             client_id: uuid::Uuid::new_v4().to_string(),
             http_client: reqwest::Client::new(),
+            #[cfg(feature = "desktop")]
             interrogator: Arc::new(RwLock::new(InterrogatorState::new())),
             event_tx,
             last_heartbeat: Mutex::new(std::time::Instant::now()),
+            #[cfg(feature = "desktop")]
             app_handle: Mutex::new(None),
             app_mode_active: std::sync::atomic::AtomicBool::new(false),
             web_server_running: std::sync::atomic::AtomicBool::new(false),

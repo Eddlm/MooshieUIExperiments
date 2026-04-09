@@ -3,8 +3,10 @@ pub mod comfyui;
 pub mod commands;
 pub mod config;
 pub mod error;
+#[cfg(feature = "desktop")]
 pub mod interrogator;
 pub mod metadata;
+#[cfg(feature = "desktop")]
 pub mod setup;
 pub mod state;
 pub mod temp_images;
@@ -15,7 +17,6 @@ use std::sync::Arc;
 
 use config::load_persisted_config;
 use state::AppState;
-use tauri::{Manager, RunEvent};
 
 /// Fix Wayland rendering in AppImage builds.
 ///
@@ -28,7 +29,7 @@ use tauri::{Manager, RunEvent};
 ///   3. Re-executing the process with the corrected environment.
 ///
 /// A sentinel env var `_MOOSHIEUI_WAYLAND_FIXED` prevents infinite re-exec.
-#[cfg(target_os = "linux")]
+#[cfg(all(feature = "desktop", target_os = "linux"))]
 fn fix_wayland_appimage_env() {
     // Only relevant inside an AppImage on a Wayland session, and only once.
     if std::env::var("APPIMAGE").is_err()
@@ -83,8 +84,11 @@ fn fix_wayland_appimage_env() {
     eprintln!("Failed to re-exec for Wayland fix: {}", err);
 }
 
+#[cfg(feature = "desktop")]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    use tauri::{Manager, RunEvent};
+
     // Fix WebKitGTK scroll jank and rendering glitches on NVIDIA + Wayland.
     // The DMA-BUF renderer is broken with NVIDIA proprietary drivers.
     #[cfg(target_os = "linux")]

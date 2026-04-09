@@ -5,6 +5,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+#[cfg(feature = "desktop")]
 use tauri::{AppHandle, Emitter, State};
 
 use crate::comfyui::types::*;
@@ -69,6 +70,7 @@ pub struct CivitaiSearchParams {
     pub api_key: Option<String>,
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn get_models(
     state: State<'_, Arc<AppState>>,
@@ -77,21 +79,25 @@ pub async fn get_models(
     state.get_models_list(&category).await
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn get_samplers(state: State<'_, Arc<AppState>>) -> Result<SamplerInfo, AppError> {
     state.get_samplers_and_schedulers().await
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn get_embeddings(state: State<'_, Arc<AppState>>) -> Result<Vec<String>, AppError> {
     state.get_embeddings_list().await
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn get_queue(state: State<'_, Arc<AppState>>) -> Result<QueueInfo, AppError> {
     state.get_queue_info().await
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn get_history(
     state: State<'_, Arc<AppState>>,
@@ -100,11 +106,13 @@ pub async fn get_history(
     state.get_history_for(&prompt_id).await
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn interrupt_generation(state: State<'_, Arc<AppState>>) -> Result<(), AppError> {
     state.interrupt().await
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn delete_queue_item(
     state: State<'_, Arc<AppState>>,
@@ -113,6 +121,7 @@ pub async fn delete_queue_item(
     state.delete_queue_items(vec![prompt_id]).await
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn upload_image(
     state: State<'_, Arc<AppState>>,
@@ -121,6 +130,7 @@ pub async fn upload_image(
     state.upload_image_file(&image_path).await
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn upload_image_bytes(
     state: State<'_, Arc<AppState>>,
@@ -130,6 +140,7 @@ pub async fn upload_image_bytes(
     state.upload_image_from_bytes(image_bytes, filename).await
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn get_output_image(
     state: State<'_, Arc<AppState>>,
@@ -139,6 +150,7 @@ pub async fn get_output_image(
     state.get_output_image_bytes(&filename, &subfolder).await
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn get_client_id(state: State<'_, Arc<AppState>>) -> Result<String, AppError> {
     Ok(state.client_id.clone())
@@ -153,6 +165,7 @@ pub struct ModelInstallDir {
 /// Returns all directories where a model of the given category can be installed.
 /// Always includes the primary app directory; also includes any extra_model_paths
 /// subdirectories for the category that already exist on disk.
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn get_model_install_dirs(
     state: State<'_, Arc<AppState>>,
@@ -205,6 +218,7 @@ pub async fn get_model_install_dirs(
 }
 
 /// Opens a directory in the OS file explorer.
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn open_directory(path: String) -> Result<(), AppError> {
     let dir = std::path::Path::new(&path);
@@ -241,6 +255,7 @@ pub async fn open_directory(path: String) -> Result<(), AppError> {
     Ok(())
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn download_model(
     app: AppHandle,
@@ -263,6 +278,7 @@ pub async fn download_model(
         .await
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn save_image_file(image_bytes: Vec<u8>, path: String) -> Result<(), AppError> {
     std::fs::write(&path, &image_bytes)?;
@@ -271,6 +287,7 @@ pub async fn save_image_file(image_bytes: Vec<u8>, path: String) -> Result<(), A
 
 /// Embed metadata into raw PNG bytes and return the result — no disk save.
 /// Used when copying a freshly-generated image before it has been persisted to gallery.
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn embed_png_metadata_bytes(
     image_bytes: Vec<u8>,
@@ -282,6 +299,7 @@ pub async fn embed_png_metadata_bytes(
     crate::metadata::embed_png_metadata(&image_bytes, &metadata, mode).map_err(AppError::Other)
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn save_to_gallery(
     state: State<'_, Arc<AppState>>,
@@ -304,6 +322,7 @@ pub async fn save_to_gallery(
 }
 
 /// Save raw image bytes (from WebSocket) directly to the gallery with optional embedded metadata.
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn save_to_gallery_bytes(
     image_bytes: Vec<u8>,
@@ -396,6 +415,7 @@ pub fn save_to_gallery_inner(
     Ok(gallery_filename)
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn read_image_metadata(
     filename: String,
@@ -407,6 +427,7 @@ pub async fn read_image_metadata(
     crate::metadata::read_png_metadata(&bytes).map_err(AppError::Other)
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn read_image_metadata_bytes(
     image_bytes: Vec<u8>,
@@ -414,6 +435,7 @@ pub async fn read_image_metadata_bytes(
     crate::metadata::read_png_metadata(&image_bytes).map_err(AppError::Other)
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn read_image_metadata_path(
     path: String,
@@ -422,6 +444,7 @@ pub async fn read_image_metadata_path(
     crate::metadata::read_png_metadata(&bytes).map_err(AppError::Other)
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn list_gallery_images() -> Result<Vec<String>, AppError> {
     let dir = crate::config::gallery_dir()
@@ -448,6 +471,7 @@ pub async fn list_gallery_images() -> Result<Vec<String>, AppError> {
     Ok(files.into_iter().map(|(_, name)| name).collect())
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn list_gallery_image_entries() -> Result<Vec<GalleryImageEntry>, AppError> {
     let dir = crate::config::gallery_dir()
@@ -487,6 +511,7 @@ pub async fn list_gallery_image_entries() -> Result<Vec<GalleryImageEntry>, AppE
     Ok(files)
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn load_gallery_image(filename: String) -> Result<Vec<u8>, AppError> {
     if filename.contains('/') || filename.contains('\\') || filename.contains("..") {
@@ -524,6 +549,7 @@ pub fn generate_thumbnail(
     Ok(buf.into_inner())
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn get_gallery_image_path(filename: String) -> Result<String, AppError> {
     let dir = crate::config::gallery_dir()
@@ -538,6 +564,7 @@ pub async fn get_gallery_image_path(filename: String) -> Result<String, AppError
     Ok(path.to_string_lossy().into_owned())
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn delete_gallery_image(filename: String) -> Result<(), AppError> {
     let dir = crate::config::gallery_dir()
@@ -549,6 +576,7 @@ pub async fn delete_gallery_image(filename: String) -> Result<(), AppError> {
     Ok(())
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn rename_gallery_image(
     old_filename: String,
@@ -751,6 +779,7 @@ fn native_clipboard_write(image_bytes: &[u8], mime_type: &str) -> Result<(), App
 }
 
 /// Copy raw image bytes (PNG/JPEG/WebP) to the system clipboard.
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn copy_bytes_to_clipboard(bytes: Vec<u8>, ext: String) -> Result<(), AppError> {
     let mime = infer_image_mime(&bytes, Some(&ext));
@@ -758,6 +787,7 @@ pub async fn copy_bytes_to_clipboard(bytes: Vec<u8>, ext: String) -> Result<(), 
 }
 
 /// Copy an image file to the system clipboard.
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn copy_image_to_clipboard(file_path: String) -> Result<(), AppError> {
     let path = std::path::Path::new(&file_path);
@@ -792,6 +822,7 @@ pub async fn copy_image_to_clipboard(file_path: String) -> Result<(), AppError> 
 }
 
 /// Check if a ComfyUI node class is available (used to detect custom node packages).
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn check_node_available(
     state: State<'_, Arc<AppState>>,
@@ -825,6 +856,7 @@ pub fn resolve_uv_bin_pub(venv_path: &str) -> std::path::PathBuf {
 }
 
 /// Check if a custom node package is installed on disk (directory exists in custom_nodes/).
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn is_custom_node_installed(
     state: State<'_, Arc<AppState>>,
@@ -839,6 +871,7 @@ pub async fn is_custom_node_installed(
 
 /// Install a custom node from a git repository into ComfyUI's custom_nodes directory.
 /// Emits `install:progress` events with { node_name, step, message, done } for live progress.
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn install_custom_node(
     app: AppHandle,
@@ -1000,6 +1033,7 @@ pub async fn install_custom_node(
 /// Install a pip package into the ComfyUI virtual environment.
 /// Used to lazily install dependencies that are only needed for optional features
 /// (e.g. `ultralytics` for face fix).
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn install_pip_package(
     state: State<'_, Arc<AppState>>,
@@ -1045,6 +1079,7 @@ pub async fn install_pip_package(
 /// Search for a model file by SHA256 hash (full or AutoV2) within a model category directory.
 /// Returns the filename if found, or null if no match.
 /// Note: this hashes each file in the directory, so it may take a while for large collections.
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn find_model_by_hash(
     state: State<'_, Arc<AppState>>,
@@ -1096,6 +1131,7 @@ pub async fn find_model_by_hash(
 
 /// Compute the full SHA256 hash of a model file (uppercase hex, CivitAI-compatible).
 /// Also returns the AutoV2 hash (first 10 chars).
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn hash_model_file(
     state: State<'_, Arc<AppState>>,
@@ -1121,6 +1157,7 @@ pub async fn hash_model_file(
 
 /// Look up a model on CivitAI by its hash (SHA256 or AutoV2).
 /// Returns the CivitAI model version info if found.
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn civitai_lookup_hash(
     state: State<'_, Arc<AppState>>,
@@ -1157,6 +1194,7 @@ pub async fn civitai_lookup_hash(
     Ok(data)
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn civitai_search_models(
     state: State<'_, Arc<AppState>>,
@@ -1240,6 +1278,7 @@ pub async fn civitai_search_models(
     Ok(data)
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn civitai_list_architectures(
     state: State<'_, Arc<AppState>>,
@@ -1380,6 +1419,7 @@ pub async fn civitai_list_architectures(
 /// Read the ModelSpec metadata from a safetensors file header.
 /// Returns a map of modelspec fields (without the "modelspec." prefix) if present,
 /// or null if the file has no ModelSpec metadata.
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn read_modelspec(
     state: State<'_, Arc<AppState>>,
@@ -1618,6 +1658,7 @@ fn resolve_model_path(
 
 /// Fetch combined LoRA info: hash the file, look up on CivitAI, read ModelSpec.
 /// Returns structured info for the LoRA gallery panel.
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn get_lora_civitai_info(
     state: State<'_, Arc<AppState>>,
@@ -1802,6 +1843,7 @@ pub async fn get_lora_civitai_info(
 /// are populated even when a local sidecar preview exists.
 /// Sidecar search order: `{stem}.png`, `{stem}.jpg`, `{stem}.jpeg`,
 /// `{stem}.preview.png`, `{stem}.preview.jpg` (same directory as the model file).
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn get_checkpoint_civitai_info(
     state: State<'_, Arc<AppState>>,
@@ -2024,6 +2066,7 @@ pub struct ReleaseNote {
     pub published_at: String,
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn fetch_release_notes(
     state: State<'_, Arc<AppState>>,
@@ -2081,6 +2124,7 @@ pub struct ImportResult {
 /// Copies each image file (PNG/JPG/WebP) into the gallery directory,
 /// preserving file modification time in the gallery filename for sorting.
 /// Skips files that already exist in the gallery (by original filename).
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn import_image_directory(
     directory: String,
@@ -2204,6 +2248,7 @@ fn collect_image_files_recursive(
 /// - App config (sanitized)
 /// - Basic system/platform info
 /// - Rust-side log path references
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn export_logs(
     state: State<'_, Arc<AppState>>,
@@ -2350,6 +2395,7 @@ fn detect_image_mime(bytes: &[u8]) -> &'static str {
 /// Returns the image as a `"data:<mime>;base64,..."` string so the WebView can
 /// display it without making its own unauthenticated request to CivitAI.
 /// Cache TTL is 7 days; stale or missing entries are refreshed transparently.
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn fetch_cached_image(
     state: State<'_, Arc<AppState>>,
@@ -2429,6 +2475,7 @@ pub async fn fetch_cached_image(
 
 /// Read an image from the native clipboard and return PNG bytes.
 /// Bypasses WebView clipboard restrictions that prevent `navigator.clipboard.read()` from working.
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn read_clipboard_image(app: AppHandle) -> Result<Vec<u8>, AppError> {
     use tauri_plugin_clipboard_manager::ClipboardExt;

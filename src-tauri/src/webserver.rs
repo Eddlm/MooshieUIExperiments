@@ -199,6 +199,8 @@ pub async fn start_server(
         )
         .route("/internal-api/_auth/set_role", post(auth_set_role_handler))
         .route("/internal-api/_auth/lan_info", get(auth_lan_info_handler))
+        // Health check (unauthenticated, for K8s probes)
+        .route("/health", get(health_handler))
         // SSE event stream
         .route("/internal-api/_events", get(sse_handler))
         // Heartbeat endpoints
@@ -447,6 +449,19 @@ async fn serve_static(dist_dir: PathBuf, req: axum::extract::Request) -> Respons
         }
         Err(_) => (StatusCode::NOT_FOUND, "Not Found").into_response(),
     }
+}
+
+/// Health check endpoint for K8s liveness/readiness probes.
+/// No authentication required.
+async fn health_handler(
+    AxumState(state): AxumState<SharedState>,
+) -> Json<serde_json::Value> {
+    let comfyui_running = state.app.comfyui_process.lock().await.is_some();
+    Json(serde_json::json!({
+        "status": "ok",
+        "version": env!("CARGO_PKG_VERSION"),
+        "comfyui_running": comfyui_running,
+    }))
 }
 
 /// SSE endpoint — streams backend events to browser clients.
@@ -801,42 +816,48 @@ async fn dispatch_command(
             Ok(serde_json::json!(null))
         }
         "switch_to_app_mode" => {
-            // Step 1: Save config
-            let mut cfg = state.config.write().await;
-            cfg.browser_mode = false;
-            config::save_config(&cfg).map_err(|e| e)?;
-            drop(cfg);
-
-            // Step 2: Disarm heartbeat watchdog
-            state
-                .app_mode_active
-                .store(true, std::sync::atomic::Ordering::SeqCst);
-
-            // Step 3: Show the existing hidden Tauri window.
-            // The window was only hidden (not destroyed) by switch_to_browser_mode,
-            // so it still has the fully-loaded app. Just make it visible again.
-            let handle_guard = state.app_handle.lock().await;
-            if let Some(ref app_handle) = *handle_guard {
-                use tauri::Manager;
-                if let Some(win) = app_handle.get_webview_window("main") {
-                    // Reload the page first — the hidden webview's JS context
-                    // gets stale (suspended timers, dead WebSocket connections)
-                    // so we need a fresh init.
-                    let _ = win.eval("location.reload()");
-                    let _ = win.show();
-                    let _ = win.unminimize();
-                    let _ = win.set_focus();
-                    log::info!("switch_to_app_mode: reloaded and showed existing window");
-                } else {
-                    log::error!("switch_to_app_mode: no 'main' window found");
-                    return Err("No app window found — please restart the application".into());
-                }
-            } else {
-                log::error!("switch_to_app_mode: AppHandle not available");
-                return Err("AppHandle not available — please restart the application".into());
+            #[cfg(not(feature = "desktop"))]
+            {
+                return Err("switch_to_app_mode is only available in desktop mode".into());
             }
+            #[cfg(feature = "desktop")]
+            {
+                // Step 1: Save config
+                let mut cfg = state.config.write().await;
+                cfg.browser_mode = false;
+                config::save_config(&cfg).map_err(|e| e)?;
+                drop(cfg);
 
-            Ok(serde_json::json!(null))
+                // Step 2: Disarm heartbeat watchdog
+                state
+                    .app_mode_active
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+
+                // Step 3: Show the existing hidden Tauri window.
+                let handle_guard = state.app_handle.lock().await;
+                if let Some(ref app_handle) = *handle_guard {
+                    use tauri::Manager;
+                    if let Some(win) = app_handle.get_webview_window("main") {
+                        let _ = win.eval("location.reload()");
+                        let _ = win.show();
+                        let _ = win.unminimize();
+                        let _ = win.set_focus();
+                        log::info!("switch_to_app_mode: reloaded and showed existing window");
+                    } else {
+                        log::error!("switch_to_app_mode: no 'main' window found");
+                        return Err(
+                            "No app window found — please restart the application".into()
+                        );
+                    }
+                } else {
+                    log::error!("switch_to_app_mode: AppHandle not available");
+                    return Err(
+                        "AppHandle not available — please restart the application".into()
+                    );
+                }
+
+                Ok(serde_json::json!(null))
+            }
         }
         "get_gallery_path" => {
             let dir = user_gallery_dir(username).ok_or("Cannot find gallery directory")?;
@@ -1322,16 +1343,15 @@ async fn dispatch_command(
         "read_image_metadata_bytes" => {
             let image_bytes: Vec<u8> = serde_json::from_value(args["imageBytes"].clone())
                 .map_err(|e| format!("Invalid imageBytes: {}", e))?;
-            let result = commands::api::read_image_metadata_bytes(image_bytes)
-                .await
-                .map_err(|e| e.to_string())?;
+            let result =
+                crate::metadata::read_png_metadata(&image_bytes).map_err(|e| e.to_string())?;
             serde_json::to_value(result).map_err(|e| e.to_string())
         }
         "read_image_metadata_path" => {
             let path = args["path"].as_str().ok_or("Missing path")?.to_string();
-            let result = commands::api::read_image_metadata_path(path)
-                .await
-                .map_err(|e| e.to_string())?;
+            let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+            let result =
+                crate::metadata::read_png_metadata(&bytes).map_err(|e| e.to_string())?;
             serde_json::to_value(result).map_err(|e| e.to_string())
         }
         "embed_png_metadata_bytes" => {
@@ -1344,10 +1364,11 @@ async fn dispatch_command(
                 .get("metadataMode")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
-            let result =
-                commands::api::embed_png_metadata_bytes(image_bytes, metadata, metadata_mode)
-                    .await
-                    .map_err(|e| e.to_string())?;
+            let mode = crate::metadata::MetadataMode::from_str(
+                metadata_mode.as_deref().unwrap_or("text_chunk"),
+            );
+            let result = crate::metadata::embed_png_metadata(&image_bytes, &metadata, mode)
+                .map_err(|e| e.to_string())?;
             Ok(serde_json::json!(result))
         }
 
@@ -1880,39 +1901,51 @@ async fn dispatch_command(
             Ok(serde_json::json!(null))
         }
 
-        // --- Interrogator ---
-        "interrogate_image" => {
-            let image_base64 = args["imageBase64"]
-                .as_str()
-                .ok_or("Missing imageBase64")?
-                .to_string();
-            use base64::Engine;
-            let image_bytes = base64::engine::general_purpose::STANDARD
-                .decode(&image_base64)
-                .map_err(|e| format!("Invalid base64: {}", e))?;
-            let result = run_interrogation_headless(&state, image_bytes).await?;
-            serde_json::to_value(result).map_err(|e| e.to_string())
-        }
-        "interrogate_image_path" => {
-            let path = args["path"].as_str().ok_or("Missing path")?.to_string();
-            let image_bytes =
-                std::fs::read(&path).map_err(|e| format!("Failed to read image: {}", e))?;
-            let result = run_interrogation_headless(&state, image_bytes).await?;
-            serde_json::to_value(result).map_err(|e| e.to_string())
-        }
-        "interrogate_gallery_image" => {
-            let filename = args["filename"]
-                .as_str()
-                .ok_or("Missing filename")?
-                .to_string();
-            if filename.contains('/') || filename.contains('\\') || filename.contains("..") {
-                return Err("Invalid filename".to_string());
+        // --- Interrogator (requires desktop feature: ONNX Runtime + model files) ---
+        "interrogate_image" | "interrogate_image_path" | "interrogate_gallery_image" => {
+            #[cfg(not(feature = "desktop"))]
+            {
+                return Err("Interrogation is not available in headless server mode".to_string());
             }
-            let dir = crate::config::gallery_dir().ok_or("Cannot find gallery directory")?;
-            let path = dir.join(&filename);
-            let image_bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
-            let result = run_interrogation_headless(&state, image_bytes).await?;
-            serde_json::to_value(result).map_err(|e| e.to_string())
+            #[cfg(feature = "desktop")]
+            {
+                let image_bytes = match command {
+                    "interrogate_image" => {
+                        let image_base64 = args["imageBase64"]
+                            .as_str()
+                            .ok_or("Missing imageBase64")?
+                            .to_string();
+                        use base64::Engine;
+                        base64::engine::general_purpose::STANDARD
+                            .decode(&image_base64)
+                            .map_err(|e| format!("Invalid base64: {}", e))?
+                    }
+                    "interrogate_image_path" => {
+                        let path = args["path"].as_str().ok_or("Missing path")?.to_string();
+                        std::fs::read(&path)
+                            .map_err(|e| format!("Failed to read image: {}", e))?
+                    }
+                    "interrogate_gallery_image" => {
+                        let filename = args["filename"]
+                            .as_str()
+                            .ok_or("Missing filename")?
+                            .to_string();
+                        if filename.contains('/')
+                            || filename.contains('\\')
+                            || filename.contains("..")
+                        {
+                            return Err("Invalid filename".to_string());
+                        }
+                        let dir = crate::config::gallery_dir()
+                            .ok_or("Cannot find gallery directory")?;
+                        let path = dir.join(&filename);
+                        std::fs::read(&path).map_err(|e| e.to_string())?
+                    }
+                    _ => unreachable!(),
+                };
+                let result = run_interrogation_headless(&state, image_bytes).await?;
+                serde_json::to_value(result).map_err(|e| e.to_string())
+            }
         }
         "interrogate_clipboard" => Err(
             "interrogate_clipboard not available in browser mode (no clipboard access)".to_string(),
@@ -1966,23 +1999,37 @@ async fn dispatch_command(
 
         // --- Clipboard ---
         "copy_image_to_clipboard" => {
-            let file_path = args["filePath"]
-                .as_str()
-                .ok_or("Missing filePath")?
-                .to_string();
-            crate::commands::api::copy_image_to_clipboard(file_path)
-                .await
-                .map_err(|e| e.to_string())?;
-            Ok(serde_json::json!(null))
+            #[cfg(feature = "desktop")]
+            {
+                let file_path = args["filePath"]
+                    .as_str()
+                    .ok_or("Missing filePath")?
+                    .to_string();
+                crate::commands::api::copy_image_to_clipboard(file_path)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                Ok(serde_json::json!(null))
+            }
+            #[cfg(not(feature = "desktop"))]
+            {
+                Err("Clipboard is not available in headless server mode".to_string())
+            }
         }
         "copy_bytes_to_clipboard" => {
-            let bytes: Vec<u8> = serde_json::from_value(args["bytes"].clone())
-                .map_err(|e| format!("Invalid bytes: {}", e))?;
-            let ext = args["ext"].as_str().ok_or("Missing ext")?.to_string();
-            crate::commands::api::copy_bytes_to_clipboard(bytes, ext)
-                .await
-                .map_err(|e| e.to_string())?;
-            Ok(serde_json::json!(null))
+            #[cfg(feature = "desktop")]
+            {
+                let bytes: Vec<u8> = serde_json::from_value(args["bytes"].clone())
+                    .map_err(|e| format!("Invalid bytes: {}", e))?;
+                let ext = args["ext"].as_str().ok_or("Missing ext")?.to_string();
+                crate::commands::api::copy_bytes_to_clipboard(bytes, ext)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                Ok(serde_json::json!(null))
+            }
+            #[cfg(not(feature = "desktop"))]
+            {
+                Err("Clipboard is not available in headless server mode".to_string())
+            }
         }
         "read_clipboard_image" => {
             Err("read_clipboard_image is not yet available in browser mode".to_string())
@@ -2002,6 +2049,7 @@ async fn dispatch_command(
 
 /// Run interrogation without AppHandle (browser mode).
 /// Emits progress via the broadcast channel instead of Tauri events.
+#[cfg(feature = "desktop")]
 async fn run_interrogation_headless(
     state: &Arc<AppState>,
     image_bytes: Vec<u8>,

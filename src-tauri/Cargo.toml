@@ -1,6 +1,6 @@
 [package]
 name = "comfyui-desktop"
-version = "0.7.1"
+version = "0.7.2"
 edition = "2021"
 license = "MIT"
 
@@ -8,15 +8,38 @@ license = "MIT"
 name = "comfyui_desktop_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
+[[bin]]
+name = "mooshieui-server"
+path = "src/server_main.rs"
+required-features = ["server"]
+
+[features]
+default = ["desktop"]
+desktop = [
+    "dep:tauri",
+    "dep:tauri-build",
+    "dep:tauri-plugin-store",
+    "dep:tauri-plugin-shell",
+    "dep:tauri-plugin-dialog",
+    "dep:tauri-plugin-fs",
+    "dep:tauri-plugin-clipboard-manager",
+    "dep:tauri-plugin-updater",
+    "dep:tauri-plugin-process",
+    "dep:webkit2gtk",
+    "dep:ort",
+    "dep:csv",
+]
+server = []
+
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2", features = [], optional = true }
 
 [dependencies]
-tauri = { version = "2", features = ["image-png"] }
-tauri-plugin-store = "2"
-tauri-plugin-shell = "2"
-tauri-plugin-dialog = "2"
-tauri-plugin-fs = "2"
+tauri = { version = "2", features = ["image-png"], optional = true }
+tauri-plugin-store = { version = "2", optional = true }
+tauri-plugin-shell = { version = "2", optional = true }
+tauri-plugin-dialog = { version = "2", optional = true }
+tauri-plugin-fs = { version = "2", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 reqwest = { version = "0.12", features = ["json", "multipart"] }
@@ -33,14 +56,14 @@ rand = "0.10"
 base64 = "0.22"
 dirs = "6"
 sha2 = "0.10"
-tauri-plugin-clipboard-manager = "2"
-tauri-plugin-updater = "2"
-tauri-plugin-process = "2"
+tauri-plugin-clipboard-manager = { version = "2", optional = true }
+tauri-plugin-updater = { version = "2", optional = true }
+tauri-plugin-process = { version = "2", optional = true }
 png = "0.18"
 flate2 = "1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
-ort = { version = "2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "tracing", "tls-native", "api-24", "load-dynamic"] }
-csv = "1"
+ort = { version = "2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "tracing", "tls-native", "api-24", "load-dynamic"], optional = true }
+csv = { version = "1", optional = true }
 axum = { version = "0.8", features = ["tokio"] }
 tower-http = { version = "0.6", features = ["fs", "cors"] }
 mime_guess = "2"
@@ -50,7 +73,7 @@ hex = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-webkit2gtk = "=2.0.2"
+webkit2gtk = { version = "=2.0.2", optional = true }
 tar = "0.4"
 
 [target.'cfg(target_os = "windows")'.dependencies]

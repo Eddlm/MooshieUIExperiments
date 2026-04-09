@@ -272,6 +272,7 @@ impl AppState {
     /// emitting `download:progress` events with byte-level progress.
     /// If `dest_dir_override` is provided, the file is written there instead
     /// of the default `{comfyui_path}/models/{category}` path.
+    #[cfg(feature = "desktop")]
     pub async fn download_model_file(
         &self,
         app: &tauri::AppHandle,
