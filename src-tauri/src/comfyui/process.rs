@@ -137,16 +137,49 @@ pub enum StartResult {
     Skipped,
 }
 
-/// After killing a stale ComfyUI listener, wait until `/system_stats` stops responding.
-async fn wait_for_port_free(state: &AppState, health_url: &str, port: u16) {
-    kill_process_on_port(port).await;
-    for _ in 0..20 {
-        tokio::time::sleep(Duration::from_millis(250)).await;
-        if !comfyui_health_ok(&state.http_client, health_url).await {
-            return;
-        }
+fn format_node_verification_failures(
+    mooshie_ok: &Result<(), String>,
+    controlnet_ok: &Result<(), String>,
+) -> Option<String> {
+    let mut failures = Vec::new();
+    if let Err(e) = mooshie_ok {
+        failures.push(e.as_str());
     }
-    log::warn!("Port {} still in use after kill attempts", port);
+    if let Err(e) = controlnet_ok {
+        failures.push(e.as_str());
+    }
+    if failures.is_empty() {
+        None
+    } else {
+        Some(failures.join("\n\n"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_node_verification_failures;
+
+    #[test]
+    fn node_verification_failures_preserve_both_errors() {
+        let mooshie = Err("missing mooshie".to_string());
+        let controlnet = Err("missing controlnet".to_string());
+
+        assert_eq!(
+            format_node_verification_failures(&mooshie, &controlnet),
+            Some("missing mooshie\n\nmissing controlnet".to_string())
+        );
+    }
+
+    #[test]
+    fn node_verification_failures_are_empty_when_checks_pass() {
+        let mooshie = Ok(());
+        let controlnet = Ok(());
+
+        assert_eq!(
+            format_node_verification_failures(&mooshie, &controlnet),
+            None
+        );
+    }
 }
 
 /// Mark the legacy single-worker (the auto-created default worker when
@@ -228,20 +261,16 @@ pub async fn start_comfyui_process(state: &AppState) -> Result<StartResult, AppE
             return Ok(StartResult::AlreadyRunning);
         }
 
-        // Stale external ComfyUI: nodes were deployed to disk but the running process
-        // never loaded them. Kill the listener and spawn a managed instance below.
+        // A running ComfyUI may belong to the user or another tool. Surface the
+        // missing-node error and let the UI ask before killing anything on the port.
         log::warn!(
-            "ComfyUI at {} is missing required nodes — freeing port {} and spawning managed ComfyUI",
+            "ComfyUI at {} is missing required nodes on port {}",
             config.server_url,
             config.server_port
         );
-        if let Err(e) = mooshie_ok {
-            log::warn!("Mooshie node verification: {}", e);
-        }
-        if let Err(e) = controlnet_ok {
-            log::warn!("ControlNet node verification: {}", e);
-        }
-        wait_for_port_free(state, &health_url, config.server_port).await;
+        let error = format_node_verification_failures(&mooshie_ok, &controlnet_ok)
+            .unwrap_or_else(|| "ComfyUI is missing required nodes.".to_string());
+        return Err(AppError::ProcessSpawnFailed(error));
     }
 
     #[cfg(target_os = "windows")]
@@ -832,13 +861,15 @@ pub async fn start_worker_process(
         }
 
         log::warn!(
-            "Worker {} (GPU {}): stale ComfyUI at {} — freeing port {}",
+            "Worker {} (GPU {}): ComfyUI at {} is missing required nodes on port {}",
             worker.id,
             worker.gpu_index,
             worker.base_url,
             worker.port
         );
-        wait_for_port_free(state, &health_url, worker.port).await;
+        let error = format_node_verification_failures(&mooshie_ok, &controlnet_ok)
+            .unwrap_or_else(|| "ComfyUI is missing required nodes.".to_string());
+        return Err(AppError::ProcessSpawnFailed(error));
     }
 
     #[cfg(target_os = "windows")]

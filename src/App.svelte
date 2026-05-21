@@ -1986,9 +1986,10 @@
     // completion events are caught within seconds rather than up to 15s later.
     const handleSseReconnect = () => {
       if (progress.isGenerating && connection.connected) {
-        // Reset last-activity timestamps so the reconciler doesn't skip prompts
+        // Clear transient SSE activity so older prompts reconcile immediately,
+        // while fresh prompts still keep their enqueued-at grace period.
         for (const p of progress.pendingPrompts) {
-          promptLastActivity.set(p.promptId, 0);
+          promptLastActivity.delete(p.promptId);
         }
       }
     };
@@ -2391,19 +2392,6 @@
   <main class="flex min-w-0 flex-1 flex-col overflow-hidden md:rounded-2xl md:border md:border-neutral-800 md:bg-neutral-900 md:p-1 md:shadow-2xl md:shadow-black/30">
     <UpdateNotification {userRole} />
     <DownloadBanner />
-    <ExternalComfyModal
-      open={externalComfyOpen}
-      payload={externalComfyPayload}
-      serverUrl={comfyServerUrl}
-      onclose={() => {
-        externalComfyOpen = false;
-      }}
-      onrestarted={() => {
-        externalComfyOpen = false;
-        startupStatus = locale.t("app.status.starting_comfyui");
-        startupStatusKind = "starting";
-      }}
-    />
     {#if startupStatus && !connection.connected}
       <div class="flex items-center gap-2 px-4 py-2 bg-amber-900/30 border-b border-amber-800/50 text-amber-200 text-sm">
         {#if startupStatusKind === "manual" || startupStatusKind === "error"}
@@ -2986,6 +2974,20 @@
     </div>
   </div>
 {/if}
+
+<ExternalComfyModal
+  open={externalComfyOpen}
+  payload={externalComfyPayload}
+  serverUrl={comfyServerUrl}
+  onclose={() => {
+    externalComfyOpen = false;
+  }}
+  onrestarted={() => {
+    externalComfyOpen = false;
+    startupStatus = locale.t("app.status.starting_comfyui");
+    startupStatusKind = "starting";
+  }}
+/>
 
 {#if generationDoneToast}
   {#key generationDoneToast.id}

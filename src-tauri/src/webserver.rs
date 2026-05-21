@@ -1036,7 +1036,8 @@ async fn heartbeat_handler(AxumState(state): AxumState<SharedState>) -> StatusCo
     StatusCode::OK
 }
 
-/// Heartbeat stop — browser sends this via sendBeacon on page unload.
+/// Legacy heartbeat stop endpoint. Treat it as a final heartbeat so refreshes,
+/// navigations, or older clients cannot interrupt active generations.
 async fn heartbeat_stop_handler(AxumState(state): AxumState<SharedState>) -> StatusCode {
     // If we've already switched to app mode, ignore the stop signal.
     if state
@@ -1046,12 +1047,8 @@ async fn heartbeat_stop_handler(AxumState(state): AxumState<SharedState>) -> Sta
     {
         return StatusCode::OK;
     }
-    // Cancel any in-progress generation before the watchdog fires and exits.
-    // Best-effort: ignore errors (ComfyUI may not be running).
-    let _ = state.app.gpu_manager.interrupt(None).await;
-    // Set heartbeat to epoch so the watchdog triggers immediately
     let mut hb = state.app.last_heartbeat.lock().await;
-    *hb = std::time::Instant::now() - Duration::from_secs(3600);
+    *hb = std::time::Instant::now();
     StatusCode::OK
 }
 

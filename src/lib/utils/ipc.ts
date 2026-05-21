@@ -217,10 +217,10 @@ export function startHeartbeat() {
     fetch("/internal-api/_heartbeat", { method: "POST" }).catch(() => {});
   });
 
-  // Send heartbeat before unload to give a final ping
+  // Send one final heartbeat before unload. The normal watchdog decides whether
+  // the browser is truly gone; refresh/navigation must not interrupt work.
   window.addEventListener("beforeunload", () => {
-    // Use sendBeacon for reliability during page close
-    navigator.sendBeacon("/internal-api/_heartbeat_stop");
+    navigator.sendBeacon("/internal-api/_heartbeat");
   });
 }
 
