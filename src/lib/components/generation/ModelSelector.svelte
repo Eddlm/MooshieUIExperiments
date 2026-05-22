@@ -282,22 +282,51 @@
 
   let modelSpecUnavailable = $state(false);
 
+  function modelSpecKey(category: string, filename: string): string {
+    return `${category}::${filename}`;
+  }
+
+  function activeModelSpecKey(): string {
+    if (generation.useSplitModel && generation.diffusionModel) {
+      return modelSpecKey("diffusion_models", generation.diffusionModel);
+    }
+    if (!generation.useSplitModel && generation.checkpoint) {
+      return modelSpecKey("checkpoints", generation.checkpoint);
+    }
+    return "";
+  }
+
+  function isCurrentModelSpecRequest(requestKey: string): boolean {
+    return modelSpecFilename === requestKey && activeModelSpecKey() === requestKey;
+  }
+
+  function clearModelSpecState() {
+    modelSpec = null;
+    modelSpecUnavailable = false;
+    modelSpecFilename = "";
+    generation.applyModelMetadata({
+      modelspecArchitecture: null,
+      civitaiBaseModel: null,
+    });
+  }
+
   async function loadModelSpec(category: string, filename: string) {
+    const requestKey = modelSpecKey(category, filename);
     if (!filename || !filename.endsWith(".safetensors")) {
-      modelSpec = null;
-      modelSpecUnavailable = false;
-      modelSpecFilename = "";
+      clearModelSpecState();
       return;
     }
-    if (filename === modelSpecFilename) return;
-    modelSpecFilename = filename;
+    if (requestKey === modelSpecFilename) return;
+    modelSpecFilename = requestKey;
     modelSpecLoading = true;
     modelSpecUnavailable = false;
     try {
       const spec = await readModelSpec(category, filename);
+      if (!isCurrentModelSpecRequest(requestKey)) return;
       let civitaiBaseModel: string | null = null;
       if (spec?.hash) {
         civitaiBaseModel = await lookupCivitaiBaseModel(spec.hash);
+        if (!isCurrentModelSpecRequest(requestKey)) return;
       }
       if (spec && Object.keys(spec).length > 0) {
         modelSpec = spec;
@@ -314,14 +343,18 @@
         });
       }
     } catch {
-      modelSpec = null;
-      modelSpecUnavailable = true;
-      generation.applyModelMetadata({
-        modelspecArchitecture: null,
-        civitaiBaseModel: null,
-      });
+      if (isCurrentModelSpecRequest(requestKey)) {
+        modelSpec = null;
+        modelSpecUnavailable = true;
+        generation.applyModelMetadata({
+          modelspecArchitecture: null,
+          civitaiBaseModel: null,
+        });
+      }
     } finally {
-      modelSpecLoading = false;
+      if (modelSpecFilename === requestKey) {
+        modelSpecLoading = false;
+      }
     }
   }
 
@@ -721,7 +754,7 @@
     generation.clipModel = null;
     generation.clipType = null;
     generation.checkpoint = name;
-    generation.applyModelMetadata({ modelspecArchitecture: null, civitaiBaseModel: null });
+    clearModelSpecState();
     generation.applyModelSpecificPreset(name);
     checkpointSearch = "";
     showCheckpointDropdown = false;
@@ -731,6 +764,7 @@
   function selectCustomDiffusion(filename: string) {
     showCheckpointDropdown = false;
     checkpointSearch = "";
+    clearModelSpecState();
     const { clip, clipType } = pickSplitModelClip(filename, models.textEncoders);
     generation.useSplitModel = true;
     generation.diffusionModel = filename;
@@ -855,6 +889,8 @@
       generation.checkpoint = resolvedFilename(rec.checkpoint);
       generation.vae = rec.vaeModel ? resolvedFilename(rec.vaeModel) : "";
     }
+
+    clearModelSpecState();
 
     // Apply auto-settings
     if (rec.autoSettings) {

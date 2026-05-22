@@ -1897,18 +1897,24 @@ pub async fn hash_model_file(
         return Err(AppError::Other("Invalid model filename".into()));
     }
 
-    let config = state.config.read().await;
-    if config.comfyui_path.is_empty() {
-        return Err(AppError::Other("ComfyUI path not configured".into()));
-    }
-    let path = std::path::Path::new(&config.comfyui_path)
-        .join("models")
-        .join(&category)
-        .join(&filename);
+    let (comfyui_path, extra_model_paths) = {
+        let config = state.config.read().await;
+        if config.comfyui_path.is_empty() {
+            return Err(AppError::Other("ComfyUI path not configured".into()));
+        }
+        (
+            config.comfyui_path.clone(),
+            config.extra_model_paths.clone(),
+        )
+    };
 
-    if !path.is_file() {
-        return Err(AppError::Other(format!("File not found: {}", filename)));
-    }
+    let path = resolve_model_path_with_diffusion_fallback(
+        &comfyui_path,
+        extra_model_paths.as_deref(),
+        &category,
+        &filename,
+    )
+    .ok_or_else(|| AppError::Other(format!("File not found: {}", filename)))?;
     let sha256 = full_sha256(&path)?;
     let autov2 = autov2_hash(&sha256);
     Ok(ModelHashResult { sha256, autov2 })
@@ -2193,18 +2199,24 @@ pub async fn read_modelspec(
         return Err(AppError::Other("Invalid model filename".into()));
     }
 
-    let config = state.config.read().await;
-    if config.comfyui_path.is_empty() {
-        return Err(AppError::Other("ComfyUI path not configured".into()));
-    }
-    let path = std::path::Path::new(&config.comfyui_path)
-        .join("models")
-        .join(&category)
-        .join(&filename);
+    let (comfyui_path, extra_model_paths) = {
+        let config = state.config.read().await;
+        if config.comfyui_path.is_empty() {
+            return Err(AppError::Other("ComfyUI path not configured".into()));
+        }
+        (
+            config.comfyui_path.clone(),
+            config.extra_model_paths.clone(),
+        )
+    };
 
-    if !path.is_file() {
-        return Err(AppError::Other(format!("File not found: {}", filename)));
-    }
+    let path = resolve_model_path_with_diffusion_fallback(
+        &comfyui_path,
+        extra_model_paths.as_deref(),
+        &category,
+        &filename,
+    )
+    .ok_or_else(|| AppError::Other(format!("File not found: {}", filename)))?;
 
     // Only process .safetensors files
     if !filename.ends_with(".safetensors") {
@@ -2534,6 +2546,22 @@ pub(crate) fn resolve_model_path(
         }
     }
     None
+}
+
+pub(crate) fn resolve_model_path_with_diffusion_fallback(
+    comfyui_path: &str,
+    extra_model_paths: Option<&str>,
+    category: &str,
+    filename: &str,
+) -> Option<std::path::PathBuf> {
+    let path = resolve_model_path(comfyui_path, extra_model_paths, category, filename);
+    if path.is_some() || category != "diffusion_models" {
+        return path;
+    }
+
+    // The frontend merges ComfyUI's `diffusion_models` and `unet` categories in
+    // one picker but reads ModelSpec through the diffusion category.
+    resolve_model_path(comfyui_path, extra_model_paths, "unet", filename)
 }
 
 pub(crate) fn validate_lora_files_for_generation(
@@ -3828,4 +3856,66 @@ pub async fn install_attention_backend(
         .ok();
     log::info!("Attention backend set to: {}", backend);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_model_path_with_diffusion_fallback;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_comfy_root(name: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "mooshieui-{}-{}-{}",
+            name,
+            std::process::id(),
+            unique
+        ))
+    }
+
+    #[test]
+    fn read_modelspec_resolves_unet_files_from_diffusion_category() {
+        let root = temp_comfy_root("modelspec-unet-fallback");
+        let unet_dir = root.join("models").join("unet");
+        fs::create_dir_all(&unet_dir).expect("create unet dir");
+        let unet_file = unet_dir.join("custom-anima.safetensors");
+        fs::write(&unet_file, b"placeholder").expect("write unet file");
+
+        let resolved = resolve_model_path_with_diffusion_fallback(
+            root.to_str().expect("utf8 temp path"),
+            None,
+            "diffusion_models",
+            "custom-anima.safetensors",
+        );
+
+        assert_eq!(resolved.as_deref(), Some(unet_file.as_path()));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn read_modelspec_prefers_diffusion_model_over_unet_duplicate() {
+        let root = temp_comfy_root("modelspec-diffusion-first");
+        let diffusion_dir = root.join("models").join("diffusion_models");
+        let unet_dir = root.join("models").join("unet");
+        fs::create_dir_all(&diffusion_dir).expect("create diffusion dir");
+        fs::create_dir_all(&unet_dir).expect("create unet dir");
+        let diffusion_file = diffusion_dir.join("duplicate.safetensors");
+        fs::write(&diffusion_file, b"diffusion").expect("write diffusion file");
+        fs::write(unet_dir.join("duplicate.safetensors"), b"unet").expect("write unet file");
+
+        let resolved = resolve_model_path_with_diffusion_fallback(
+            root.to_str().expect("utf8 temp path"),
+            None,
+            "diffusion_models",
+            "duplicate.safetensors",
+        );
+
+        assert_eq!(resolved.as_deref(), Some(diffusion_file.as_path()));
+        let _ = fs::remove_dir_all(root);
+    }
 }
