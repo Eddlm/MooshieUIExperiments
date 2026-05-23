@@ -261,6 +261,8 @@
   let modelSpec = $state<ModelSpec | null>(null);
   let modelSpecLoading = $state(false);
   let modelSpecFilename = $state("");
+  let modelSpecCategory = $state("");
+  let modelSpecRequestId = 0;
   let showModelInfo = $state(false);
 
   /** Strip HTML tags and convert to readable plain text. */
@@ -282,15 +284,45 @@
 
   let modelSpecUnavailable = $state(false);
 
+  function currentModelSpecTarget(): { category: string; filename: string } | null {
+    if (generation.useSplitModel && generation.diffusionModel) {
+      return { category: "diffusion_models", filename: generation.diffusionModel };
+    }
+    if (!generation.useSplitModel && generation.checkpoint) {
+      return { category: "checkpoints", filename: generation.checkpoint };
+    }
+    return null;
+  }
+
+  function isCurrentModelSpecTarget(category: string, filename: string): boolean {
+    const target = currentModelSpecTarget();
+    return target?.category === category && target.filename === filename;
+  }
+
+  function clearModelSpecForSelection() {
+    modelSpecRequestId += 1;
+    modelSpec = null;
+    modelSpecLoading = false;
+    modelSpecUnavailable = false;
+    modelSpecFilename = "";
+    modelSpecCategory = "";
+    autoPairedDiffusion = "";
+    autoPairedClip = "";
+    autoPairedVae = "";
+    generation.applyModelMetadata({ modelspecArchitecture: null, civitaiBaseModel: null });
+  }
+
   async function loadModelSpec(category: string, filename: string) {
     if (!filename || !filename.endsWith(".safetensors")) {
-      modelSpec = null;
-      modelSpecUnavailable = false;
-      modelSpecFilename = "";
+      if (isCurrentModelSpecTarget(category, filename)) {
+        clearModelSpecForSelection();
+      }
       return;
     }
-    if (filename === modelSpecFilename) return;
+    if (category === modelSpecCategory && filename === modelSpecFilename) return;
+    const requestId = ++modelSpecRequestId;
     modelSpecFilename = filename;
+    modelSpecCategory = category;
     modelSpecLoading = true;
     modelSpecUnavailable = false;
     try {
@@ -299,12 +331,16 @@
       if (spec?.hash) {
         civitaiBaseModel = await lookupCivitaiBaseModel(spec.hash);
       }
+      if (requestId !== modelSpecRequestId || !isCurrentModelSpecTarget(category, filename)) {
+        return;
+      }
       if (spec && Object.keys(spec).length > 0) {
         modelSpec = spec;
         generation.applyModelMetadata({
           modelspecArchitecture: spec.architecture ?? null,
           civitaiBaseModel,
         });
+        refreshCustomSplitPairingFromMetadata(category, filename);
       } else {
         modelSpec = null;
         modelSpecUnavailable = true;
@@ -314,6 +350,9 @@
         });
       }
     } catch {
+      if (requestId !== modelSpecRequestId || !isCurrentModelSpecTarget(category, filename)) {
+        return;
+      }
       modelSpec = null;
       modelSpecUnavailable = true;
       generation.applyModelMetadata({
@@ -321,7 +360,9 @@
         civitaiBaseModel: null,
       });
     } finally {
-      modelSpecLoading = false;
+      if (requestId === modelSpecRequestId && isCurrentModelSpecTarget(category, filename)) {
+        modelSpecLoading = false;
+      }
     }
   }
 
@@ -592,14 +633,19 @@
     );
   });
 
+  let autoPairedDiffusion = "";
+  let autoPairedClip = "";
+  let autoPairedVae = "";
+
   /** Pair text encoder + CLIPLoader type for a manually picked diffusion/UNET file */
   function pickSplitModelClip(
     diffusionModel: string,
     encoders: string[],
+    includeCurrentMetadata = false,
   ): { clip: string; clipType: string } {
     const dm = diffusionModel.toLowerCase();
     const looksAnimaOrQwen =
-      generation.isAnima ||
+      (includeCurrentMetadata && generation.isAnima) ||
       dm.includes("anima") ||
       dm.includes("qwen") ||
       dm.includes("wan") ||
@@ -621,11 +667,15 @@
     return { clip: "", clipType: "wan" };
   }
 
-  function pickSplitModelVae(diffusionModel: string, vaes: string[]): string {
+  function pickSplitModelVae(
+    diffusionModel: string,
+    vaes: string[],
+    includeCurrentMetadata = false,
+  ): string {
     if (vaes.length === 0) return "";
     const dm = diffusionModel.toLowerCase();
     const looksAnimaOrQwen =
-      generation.isAnima ||
+      (includeCurrentMetadata && generation.isAnima) ||
       dm.includes("anima") ||
       dm.includes("qwen") ||
       dm.includes("wan") ||
@@ -641,6 +691,39 @@
       if (flux) return flux;
     }
     return vaes.find((v) => v.toLowerCase().includes("sdxl_vae")) ?? vaes[0];
+  }
+
+  function applyAutoSplitPairing(filename: string, includeCurrentMetadata = false) {
+    const { clip, clipType } = pickSplitModelClip(filename, models.textEncoders, includeCurrentMetadata);
+    const vae = pickSplitModelVae(filename, models.vaes, includeCurrentMetadata);
+
+    generation.clipModel = clip || null;
+    generation.clipType = clipType;
+    generation.vae = vae;
+    autoPairedDiffusion = filename;
+    autoPairedClip = clip;
+    autoPairedVae = vae;
+  }
+
+  function refreshCustomSplitPairingFromMetadata(category: string, filename: string) {
+    if (category !== "diffusion_models" || !generation.useSplitModel || generation.diffusionModel !== filename) {
+      return;
+    }
+
+    const { clip, clipType } = pickSplitModelClip(filename, models.textEncoders, true);
+    const vae = pickSplitModelVae(filename, models.vaes, true);
+    const stillUsingAutoPairing = autoPairedDiffusion === filename;
+
+    if (clip && (!generation.clipModel || (stillUsingAutoPairing && generation.clipModel === autoPairedClip))) {
+      generation.clipModel = clip;
+      generation.clipType = clipType;
+      autoPairedClip = clip;
+    }
+
+    if (vae && (!generation.vae || (stillUsingAutoPairing && generation.vae === autoPairedVae))) {
+      generation.vae = vae;
+      autoPairedVae = vae;
+    }
   }
 
   /** Combine installed checkpoints + recommended models into a single filtered list */
@@ -715,13 +798,13 @@
   });
 
   function selectCheckpoint(name: string) {
+    clearModelSpecForSelection();
     // Clear split model state when selecting a normal checkpoint
     generation.useSplitModel = false;
     generation.diffusionModel = null;
     generation.clipModel = null;
     generation.clipType = null;
     generation.checkpoint = name;
-    generation.applyModelMetadata({ modelspecArchitecture: null, civitaiBaseModel: null });
     generation.applyModelSpecificPreset(name);
     checkpointSearch = "";
     showCheckpointDropdown = false;
@@ -729,14 +812,12 @@
 
   /** Use a diffusion/UNET file discovered on disk (not in the curated recommended list). */
   function selectCustomDiffusion(filename: string) {
+    clearModelSpecForSelection();
     showCheckpointDropdown = false;
     checkpointSearch = "";
-    const { clip, clipType } = pickSplitModelClip(filename, models.textEncoders);
     generation.useSplitModel = true;
     generation.diffusionModel = filename;
-    generation.clipModel = clip || null;
-    generation.clipType = clipType;
-    generation.vae = pickSplitModelVae(filename, models.vaes);
+    applyAutoSplitPairing(filename);
     generation.checkpoint = filename;
     generation.applyModelSpecificPreset(filename);
   }
@@ -826,6 +907,7 @@
     }
 
     // Use resolved filenames (handles renamed files detected by hash)
+    clearModelSpecForSelection();
     if (rec.splitModel) {
       const sm = rec.splitModel;
       generation.useSplitModel = true;

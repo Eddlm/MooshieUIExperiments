@@ -2886,43 +2886,51 @@ async fn dispatch_command(
                 return Err("Invalid model category".into());
             }
 
-            let config = state.config.read().await;
-            if config.comfyui_path.is_empty() {
-                return Err("ComfyUI path not configured".into());
-            }
-            let models_dir = std::path::Path::new(&config.comfyui_path)
-                .join("models")
-                .join(&category);
-            drop(config);
-
-            if !models_dir.exists() {
-                return Ok(serde_json::json!(null));
-            }
+            let (comfyui_path, extra_model_paths) = {
+                let config = state.config.read().await;
+                if config.comfyui_path.is_empty() {
+                    return Err("ComfyUI path not configured".into());
+                }
+                (
+                    config.comfyui_path.clone(),
+                    config.extra_model_paths.clone(),
+                )
+            };
+            let model_dirs = crate::commands::api::model_search_dirs_for_config(
+                &comfyui_path,
+                extra_model_paths.as_deref(),
+                &category,
+            );
             let needle = hash.to_uppercase();
             let is_autov2 = needle.len() == 10;
             let result = tokio::task::spawn_blocking(move || {
-                let entries = std::fs::read_dir(&models_dir).map_err(|e| e.to_string())?;
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if !path.is_file() {
+                for models_dir in model_dirs {
+                    if !models_dir.exists() {
                         continue;
                     }
-                    let name = path
-                        .file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .to_string();
-                    if !(name.ends_with(".safetensors") || name.ends_with(".ckpt")) {
-                        continue;
-                    }
-                    if let Ok(h) = crate::commands::api::full_sha256(&path) {
-                        let matches = if is_autov2 {
-                            crate::commands::api::autov2_hash(&h) == needle
-                        } else {
-                            h == needle
-                        };
-                        if matches {
-                            return Ok(Some(name));
+                    let entries = std::fs::read_dir(&models_dir).map_err(|e| e.to_string())?;
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if !path.is_file() {
+                            continue;
+                        }
+                        let name = path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string();
+                        if !(name.ends_with(".safetensors") || name.ends_with(".ckpt")) {
+                            continue;
+                        }
+                        if let Ok(h) = crate::commands::api::full_sha256(&path) {
+                            let matches = if is_autov2 {
+                                crate::commands::api::autov2_hash(&h) == needle
+                            } else {
+                                h == needle
+                            };
+                            if matches {
+                                return Ok(Some(name));
+                            }
                         }
                     }
                 }
@@ -2949,19 +2957,23 @@ async fn dispatch_command(
                 return Err("Invalid model filename".into());
             }
 
-            let config = state.config.read().await;
-            if config.comfyui_path.is_empty() {
-                return Err("ComfyUI path not configured".into());
-            }
-            let path = std::path::Path::new(&config.comfyui_path)
-                .join("models")
-                .join(&category)
-                .join(&filename);
-            drop(config);
-
-            if !path.is_file() {
-                return Err(format!("File not found: {}", filename));
-            }
+            let (comfyui_path, extra_model_paths) = {
+                let config = state.config.read().await;
+                if config.comfyui_path.is_empty() {
+                    return Err("ComfyUI path not configured".into());
+                }
+                (
+                    config.comfyui_path.clone(),
+                    config.extra_model_paths.clone(),
+                )
+            };
+            let path = crate::commands::api::resolve_model_path(
+                &comfyui_path,
+                extra_model_paths.as_deref(),
+                &category,
+                &filename,
+            )
+            .ok_or_else(|| format!("File not found: {}", filename))?;
             let result = tokio::task::spawn_blocking(move || {
                 let sha256 = crate::commands::api::full_sha256(&path).map_err(|e| e.to_string())?;
                 let autov2 = crate::commands::api::autov2_hash(&sha256);
@@ -2988,24 +3000,38 @@ async fn dispatch_command(
                 return Err("Invalid model filename".into());
             }
 
-            let config = state.config.read().await;
-            if config.comfyui_path.is_empty() {
-                return Err("ComfyUI path not configured".into());
-            }
-            let path = std::path::Path::new(&config.comfyui_path)
-                .join("models")
-                .join(&category)
-                .join(&filename);
-            drop(config);
-
-            if !path.is_file() {
-                return Err(format!("File not found: {}", filename));
-            }
+            let (comfyui_path, extra_model_paths) = {
+                let config = state.config.read().await;
+                if config.comfyui_path.is_empty() {
+                    return Err("ComfyUI path not configured".into());
+                }
+                (
+                    config.comfyui_path.clone(),
+                    config.extra_model_paths.clone(),
+                )
+            };
+            let path = crate::commands::api::resolve_model_path(
+                &comfyui_path,
+                extra_model_paths.as_deref(),
+                &category,
+                &filename,
+            )
+            .ok_or_else(|| format!("File not found: {}", filename))?;
             if !filename.ends_with(".safetensors") {
                 return Ok(serde_json::json!(null));
             }
             let result = tokio::task::spawn_blocking(move || {
-                crate::commands::api::read_safetensors_modelspec(&path).map_err(|e| e.to_string())
+                let hash_path = path.clone();
+                let mut result = crate::commands::api::read_safetensors_modelspec(&path)
+                    .map_err(|e| e.to_string())?
+                    .unwrap_or_default();
+                let sha256 =
+                    crate::commands::api::full_sha256(&hash_path).map_err(|e| e.to_string())?;
+                result.insert(
+                    "hash".to_string(),
+                    crate::commands::api::autov2_hash(&sha256),
+                );
+                Ok::<_, String>(Some(result))
             })
             .await
             .map_err(|e| e.to_string())?

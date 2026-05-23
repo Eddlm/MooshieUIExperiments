@@ -1868,43 +1868,53 @@ pub async fn find_model_by_hash(
         return Err(AppError::Other("Invalid model category".into()));
     }
 
-    let config = state.config.read().await;
-    if config.comfyui_path.is_empty() {
-        return Ok(None);
-    }
-    let models_dir = std::path::Path::new(&config.comfyui_path)
-        .join("models")
-        .join(&category);
+    let (comfyui_path, extra_model_paths) = {
+        let config = state.config.read().await;
+        if config.comfyui_path.is_empty() {
+            return Ok(None);
+        }
+        (
+            config.comfyui_path.clone(),
+            config.extra_model_paths.clone(),
+        )
+    };
+    let model_dirs =
+        model_search_dirs_for_config(&comfyui_path, extra_model_paths.as_deref(), &category);
 
-    if !models_dir.exists() {
+    if model_dirs.is_empty() {
         return Ok(None);
     }
 
     let needle = hash.to_uppercase();
     let is_autov2 = needle.len() == 10;
 
-    let entries = std::fs::read_dir(&models_dir)?;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.is_file() {
+    for models_dir in model_dirs {
+        if !models_dir.exists() {
             continue;
         }
-        let name = path
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
-        if !(name.ends_with(".safetensors") || name.ends_with(".ckpt")) {
-            continue;
-        }
-        if let Ok(h) = full_sha256(&path) {
-            let matches = if is_autov2 {
-                autov2_hash(&h) == needle
-            } else {
-                h == needle
-            };
-            if matches {
-                return Ok(Some(name));
+        let entries = std::fs::read_dir(&models_dir)?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            if !(name.ends_with(".safetensors") || name.ends_with(".ckpt")) {
+                continue;
+            }
+            if let Ok(h) = full_sha256(&path) {
+                let matches = if is_autov2 {
+                    autov2_hash(&h) == needle
+                } else {
+                    h == needle
+                };
+                if matches {
+                    return Ok(Some(name));
+                }
             }
         }
     }
@@ -1927,18 +1937,24 @@ pub async fn hash_model_file(
         return Err(AppError::Other("Invalid model filename".into()));
     }
 
-    let config = state.config.read().await;
-    if config.comfyui_path.is_empty() {
-        return Err(AppError::Other("ComfyUI path not configured".into()));
-    }
-    let path = std::path::Path::new(&config.comfyui_path)
-        .join("models")
-        .join(&category)
-        .join(&filename);
+    let (comfyui_path, extra_model_paths) = {
+        let config = state.config.read().await;
+        if config.comfyui_path.is_empty() {
+            return Err(AppError::Other("ComfyUI path not configured".into()));
+        }
+        (
+            config.comfyui_path.clone(),
+            config.extra_model_paths.clone(),
+        )
+    };
 
-    if !path.is_file() {
-        return Err(AppError::Other(format!("File not found: {}", filename)));
-    }
+    let path = resolve_model_path(
+        &comfyui_path,
+        extra_model_paths.as_deref(),
+        &category,
+        &filename,
+    )
+    .ok_or_else(|| AppError::Other(format!("File not found: {}", filename)))?;
     let sha256 = full_sha256(&path)?;
     let autov2 = autov2_hash(&sha256);
     Ok(ModelHashResult { sha256, autov2 })
@@ -2223,18 +2239,23 @@ pub async fn read_modelspec(
         return Err(AppError::Other("Invalid model filename".into()));
     }
 
-    let config = state.config.read().await;
-    if config.comfyui_path.is_empty() {
-        return Err(AppError::Other("ComfyUI path not configured".into()));
-    }
-    let path = std::path::Path::new(&config.comfyui_path)
-        .join("models")
-        .join(&category)
-        .join(&filename);
-
-    if !path.is_file() {
-        return Err(AppError::Other(format!("File not found: {}", filename)));
-    }
+    let (comfyui_path, extra_model_paths) = {
+        let config = state.config.read().await;
+        if config.comfyui_path.is_empty() {
+            return Err(AppError::Other("ComfyUI path not configured".into()));
+        }
+        (
+            config.comfyui_path.clone(),
+            config.extra_model_paths.clone(),
+        )
+    };
+    let path = resolve_model_path(
+        &comfyui_path,
+        extra_model_paths.as_deref(),
+        &category,
+        &filename,
+    )
+    .ok_or_else(|| AppError::Other(format!("File not found: {}", filename)))?;
 
     // Only process .safetensors files
     if !filename.ends_with(".safetensors") {
@@ -2517,11 +2538,73 @@ pub(crate) fn category_subdirs(category: &str) -> &'static [&'static str] {
     }
 }
 
-/// Resolve a model file path by searching the primary ComfyUI models directory
+fn model_resolution_categories(category: &str) -> Vec<&str> {
+    match category {
+        "diffusion_models" => vec!["diffusion_models", "unet"],
+        "text_encoders" => vec!["text_encoders", "clip"],
+        _ => vec![category],
+    }
+}
+
+fn category_resolution_subdirs(category: &str) -> Vec<&'static str> {
+    let mut seen = BTreeSet::new();
+    let mut subdirs = Vec::new();
+    for resolved_category in model_resolution_categories(category) {
+        for subdir in category_subdirs(resolved_category) {
+            if seen.insert(*subdir) {
+                subdirs.push(*subdir);
+            }
+        }
+    }
+    subdirs
+}
+
+pub(crate) fn model_search_dirs_for_config(
+    comfyui_path: &str,
+    extra_model_paths: Option<&str>,
+    category: &str,
+) -> Vec<std::path::PathBuf> {
+    let mut seen = BTreeSet::new();
+    let mut dirs = Vec::new();
+    let mut push_dir = |path: std::path::PathBuf| {
+        let key = path.to_string_lossy().to_lowercase();
+        if seen.insert(key) {
+            dirs.push(path);
+        }
+    };
+
+    if !comfyui_path.is_empty() {
+        for resolved_category in model_resolution_categories(category) {
+            push_dir(
+                std::path::Path::new(comfyui_path)
+                    .join("models")
+                    .join(resolved_category),
+            );
+        }
+    }
+
+    if let Some(extra) = extra_model_paths {
+        let subdirs = category_resolution_subdirs(category);
+        for dir in extra
+            .split('\n')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+        {
+            let base = std::path::Path::new(dir);
+            for subdir in &subdirs {
+                push_dir(base.join(subdir));
+            }
+            push_dir(base.to_path_buf());
+        }
+    }
+
+    dirs
+}
+
+/// Resolve a model file path by searching primary ComfyUI model directories
 /// and then any extra_model_paths directories (newline-separated).
-/// For extra paths, tries all known subdirectory variants for the category
-/// (matching the YAML config given to ComfyUI) and also tries the file
-/// directly in the root (flat directory case).
+/// Some ComfyUI installs use legacy aliases (`unet`, `clip`) for modern
+/// categories, so resolution must mirror the picker lists.
 pub(crate) fn resolve_model_path(
     comfyui_path: &str,
     extra_model_paths: Option<&str>,
@@ -2532,35 +2615,10 @@ pub(crate) fn resolve_model_path(
         return None;
     }
 
-    // Primary ComfyUI directory always uses the canonical category name
-    let primary = std::path::Path::new(comfyui_path)
-        .join("models")
-        .join(category)
-        .join(filename);
-    if primary.exists() {
-        return Some(primary);
-    }
-
-    if let Some(extra) = extra_model_paths {
-        let subdirs = category_subdirs(category);
-        for dir in extra
-            .split('\n')
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-        {
-            let base = std::path::Path::new(dir);
-            // Try all known subdirectory variants for this category
-            for subdir in subdirs {
-                let candidate = base.join(subdir).join(filename);
-                if candidate.exists() {
-                    return Some(candidate);
-                }
-            }
-            // Flat directory: file directly in the root
-            let flat = base.join(filename);
-            if flat.exists() {
-                return Some(flat);
-            }
+    for dir in model_search_dirs_for_config(comfyui_path, extra_model_paths, category) {
+        let candidate = dir.join(filename);
+        if candidate.is_file() {
+            return Some(candidate);
         }
     }
     None
