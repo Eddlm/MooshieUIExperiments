@@ -261,7 +261,10 @@
   let modelSpec = $state<ModelSpec | null>(null);
   let modelSpecLoading = $state(false);
   let modelSpecFilename = $state("");
+  let modelSpecRequestKey = "";
   let showModelInfo = $state(false);
+  let autoSelectedSplitClip: { filename: string; clip: string | null; clipType: string } | null = null;
+  let autoSelectedSplitVae: { filename: string; vae: string } | null = null;
 
   /** Strip HTML tags and convert to readable plain text. */
   function stripHtml(html: string): string {
@@ -287,9 +290,13 @@
       modelSpec = null;
       modelSpecUnavailable = false;
       modelSpecFilename = "";
+      modelSpecRequestKey = "";
+      generation.applyModelMetadata({ modelspecArchitecture: null, civitaiBaseModel: null });
       return;
     }
-    if (filename === modelSpecFilename) return;
+    const requestKey = `${category}::${filename}`;
+    if (requestKey === modelSpecRequestKey) return;
+    modelSpecRequestKey = requestKey;
     modelSpecFilename = filename;
     modelSpecLoading = true;
     modelSpecUnavailable = false;
@@ -299,12 +306,14 @@
       if (spec?.hash) {
         civitaiBaseModel = await lookupCivitaiBaseModel(spec.hash);
       }
+      if (modelSpecRequestKey !== requestKey) return;
       if (spec && Object.keys(spec).length > 0) {
         modelSpec = spec;
         generation.applyModelMetadata({
           modelspecArchitecture: spec.architecture ?? null,
           civitaiBaseModel,
         });
+        syncAutoSelectedSplitComponents(filename);
       } else {
         modelSpec = null;
         modelSpecUnavailable = true;
@@ -314,6 +323,7 @@
         });
       }
     } catch {
+      if (modelSpecRequestKey !== requestKey) return;
       modelSpec = null;
       modelSpecUnavailable = true;
       generation.applyModelMetadata({
@@ -321,7 +331,9 @@
         civitaiBaseModel: null,
       });
     } finally {
-      modelSpecLoading = false;
+      if (modelSpecRequestKey === requestKey) {
+        modelSpecLoading = false;
+      }
     }
   }
 
@@ -643,6 +655,35 @@
     return vaes.find((v) => v.toLowerCase().includes("sdxl_vae")) ?? vaes[0];
   }
 
+  function syncAutoSelectedSplitComponents(filename: string) {
+    if (!generation.useSplitModel || generation.diffusionModel !== filename) return;
+
+    const desiredClip = pickSplitModelClip(filename, models.textEncoders);
+    const currentClipStillAuto =
+      !generation.clipModel ||
+      (autoSelectedSplitClip?.filename === filename &&
+        generation.clipModel === autoSelectedSplitClip.clip &&
+        generation.clipType === autoSelectedSplitClip.clipType);
+    if (currentClipStillAuto) {
+      generation.clipModel = desiredClip.clip || null;
+      generation.clipType = desiredClip.clipType;
+      autoSelectedSplitClip = {
+        filename,
+        clip: generation.clipModel,
+        clipType: generation.clipType,
+      };
+    }
+
+    const desiredVae = pickSplitModelVae(filename, models.vaes);
+    const currentVaeStillAuto =
+      !generation.vae ||
+      (autoSelectedSplitVae?.filename === filename && generation.vae === autoSelectedSplitVae.vae);
+    if (desiredVae && currentVaeStillAuto) {
+      generation.vae = desiredVae;
+      autoSelectedSplitVae = { filename, vae: desiredVae };
+    }
+  }
+
   /** Combine installed checkpoints + recommended models into a single filtered list */
   const filteredItems = $derived(() => {
     const q = checkpointSearch.toLowerCase();
@@ -731,12 +772,19 @@
   function selectCustomDiffusion(filename: string) {
     showCheckpointDropdown = false;
     checkpointSearch = "";
+    generation.applyModelMetadata({ modelspecArchitecture: null, civitaiBaseModel: null });
     const { clip, clipType } = pickSplitModelClip(filename, models.textEncoders);
     generation.useSplitModel = true;
     generation.diffusionModel = filename;
     generation.clipModel = clip || null;
     generation.clipType = clipType;
     generation.vae = pickSplitModelVae(filename, models.vaes);
+    autoSelectedSplitClip = {
+      filename,
+      clip: generation.clipModel,
+      clipType: generation.clipType,
+    };
+    autoSelectedSplitVae = { filename, vae: generation.vae };
     generation.checkpoint = filename;
     generation.applyModelSpecificPreset(filename);
   }
