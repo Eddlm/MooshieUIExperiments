@@ -19,43 +19,6 @@ const GIRL_COUNT_SET = new Set<string>([
 
 const COMPOSITION_TAGS = new Set(["solo", "multiple girls", "multiple_girls"]);
 
-/** Second word in many danbooru appearance phrases — not character names. */
-const APPEARANCE_TAIL_WORDS = new Set([
-  "hair",
-  "eyes",
-  "eye",
-  "skirt",
-  "dress",
-  "shirt",
-  "thighhighs",
-  "socks",
-  "gloves",
-  "wings",
-  "ears",
-  "tail",
-  "hat",
-  "bow",
-  "ribbon",
-  "necktie",
-  "jacket",
-  "panties",
-  "bra",
-  "swimsuit",
-  "bikini",
-  "uniform",
-  "armor",
-  "cape",
-  "hood",
-  "horns",
-  "fang",
-  "skin",
-  "lips",
-  "nose",
-  "blush",
-  "sweat",
-  "tears",
-]);
-
 function normalizeTag(tag: string): string {
   return tag.trim().toLowerCase().replace(/\s+/g, " ");
 }
@@ -159,7 +122,7 @@ export interface PromptCharacterAnalysis {
   girlCountTag: string | null;
   hasSolo: boolean;
   hasMultipleGirls: boolean;
-  /** Non-generic tags treated as an existing character / series block. */
+  /** Conservatively detected prompt parts that can safely be treated as an existing character block. */
   characterParts: string[];
   existingCharacterLabel: string;
   detectedCopyrightPart: string | null;
@@ -177,20 +140,6 @@ function isGenericPart(part: string): boolean {
   if (COMPOSITION_TAGS.has(n)) return true;
   if (QUALITY_ALLOWLIST.has(n)) return true;
   return false;
-}
-
-function isLikelyCharacterIdentityPart(part: string, newAppearance: Set<string>): boolean {
-  const n = normalizeTag(part);
-  if (!n || isGenericPart(part)) return false;
-  if (newAppearance.has(n)) return false;
-
-  if (n.includes(" ")) {
-    const tail = n.split(" ").at(-1) ?? "";
-    if (APPEARANCE_TAIL_WORDS.has(tail)) return false;
-    return true;
-  }
-
-  return true;
 }
 
 function findGirlCountTag(parts: string[]): string | null {
@@ -219,23 +168,6 @@ function appearanceKeys(character: AnimadexCharacter): Set<string> {
   return keys;
 }
 
-function detectCopyrightInParts(
-  parts: string[],
-  appearance: Set<string>,
-): string | null {
-  for (const p of parts) {
-    const n = normalizeTag(p);
-    if (!n || n.includes(" ")) continue;
-    if (appearance.has(n)) continue;
-    if (GIRL_COUNT_SET.has(n)) continue;
-    if (COMPOSITION_TAGS.has(n)) continue;
-    if (QUALITY_ALLOWLIST.has(n)) continue;
-    if (n.startsWith("@")) continue;
-    return p;
-  }
-  return null;
-}
-
 export function analyzePromptForCharacter(
   prompt: string,
   character: AnimadexCharacter,
@@ -245,19 +177,18 @@ export function analyzePromptForCharacter(
   const hasSolo = parts.some((p) => normalizeTag(p) === "solo");
   const hasMultipleGirls = parts.some((p) => normalizeTag(p) === "multiple girls");
   const nameKeys = characterNameKeys(character);
-  const appearance = appearanceKeys(character);
-  const newCopyright = normalizeTag(parseCharacterTrigger(character).copyright);
 
-  const characterParts = parts.filter((p) => isLikelyCharacterIdentityPart(p, appearance));
+  // Free-form prompts do not preserve which tags came from a previous character
+  // insert. Be conservative here: treating every non-generic tag as character
+  // identity can delete scene/style tags when the user chooses replace.
+  const characterParts: string[] = [];
 
   const isDuplicate = parts.some((p) => {
     const n = normalizeTag(p);
     return nameKeys.has(n) || nameKeys.has(tagKey(p));
   });
 
-  const detectedCopyrightPart =
-    characterParts.find((p) => normalizeTag(p) === newCopyright) ??
-    detectCopyrightInParts(characterParts, appearance);
+  const detectedCopyrightPart: string | null = null;
 
   const nonGenericCount = parts.filter((p) => !isGenericPart(p)).length;
   const isMinimalSolo =
@@ -265,15 +196,9 @@ export function analyzePromptForCharacter(
     girlCountTag === "1girl" &&
     (!hasSolo || parts.length <= 3);
 
-  const needsActionChoice =
-    !isDuplicate && (characterParts.length > 0 || isMinimalSolo);
+  const needsActionChoice = !isDuplicate && isMinimalSolo;
 
-  const existingCharacterLabel =
-    characterParts.length > 0
-      ? characterParts.slice(0, 4).join(", ") + (characterParts.length > 4 ? ", …" : "")
-      : girlCountTag === "1girl"
-        ? "1girl"
-        : "";
+  const existingCharacterLabel = girlCountTag === "1girl" ? "1girl" : "";
 
   return {
     parts,

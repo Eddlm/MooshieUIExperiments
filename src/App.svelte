@@ -2826,7 +2826,9 @@
 
 <!-- Interrogate modal (from gallery/lightbox) -->
 
-<CharacterInsertModal onapplied={finishCharacterInsert} />
+{#if !useMobileLayout}
+  <CharacterInsertModal onapplied={finishCharacterInsert} />
+{/if}
 
 <!-- Artist tag conflict dialog -->
 {#if artistInsertPending}
