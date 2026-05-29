@@ -447,6 +447,7 @@ const ru: Record<string, string> = {
   "generation.prompts.scheduling": "Расписание промптов",
   "generation.prompts.scheduling_segments": "{count} сегмент(ов)",
   "generation.prompts.quality_applied": "Теги качества применены",
+  "generation.prompts.quality_disabled": "Теги качества отключены",
   "generation.prompts.anima_artist_tip": "Совет: Теги художников начинаются с @ (напр. @artist_name)",
   "generation.prompt.category_all": "All",
   "generation.prompt.category_general": "General",

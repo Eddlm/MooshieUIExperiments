@@ -22,6 +22,10 @@
   const hasRegionalPrompting = $derived(
     hasRegionalTags(generation.positivePrompt) || generation.regionalPrompts.length > 0,
   );
+  const qualityTagsSupported = $derived(
+    generation.isAnima || generation.isIllustrious || generation.isPony || generation.isNanosaur,
+  );
+  const qualityTagsApplied = $derived(qualityTagsSupported && generation.autoQualityTags);
   const hasNegativeSchedule = $derived(hasSchedulingTags(generation.negativePrompt));
   const hasAnySchedule = $derived(hasPositiveSchedule || hasNegativeSchedule);
   const positiveSegments = $derived(hasPositiveSchedule ? parseScheduledPrompt(generation.positivePrompt).segments : []);
@@ -75,8 +79,21 @@
         <label class="text-xs text-neutral-400">{locale.t('generation.prompts.positive')}<InfoTip text={locale.t('generation.prompts.positive_tip')} /></label>
       </div>
       <div class="flex items-center justify-end gap-1.5 flex-wrap min-w-0">
-      {#if generation.isAnima || generation.isIllustrious}
-        <span class="shrink-0 text-[10px] px-2 py-0.5 rounded-full bg-emerald-600/20 text-emerald-400 border border-emerald-600/30">{locale.t('generation.prompts.quality_applied')}</span>
+      {#if qualityTagsSupported}
+        <button
+          type="button"
+          onclick={() => {
+            generation.autoQualityTags = !generation.autoQualityTags;
+            generation.saveSettings();
+          }}
+          class="shrink-0 text-[10px] px-2 py-0.5 rounded-full border transition-colors cursor-pointer {qualityTagsApplied
+            ? 'bg-emerald-600/20 text-emerald-400 border-emerald-600/30 hover:bg-emerald-600/30'
+            : 'bg-red-600/15 text-red-300 border-red-600/30 hover:bg-red-600/25'}"
+        >
+          {qualityTagsApplied
+            ? locale.t('generation.prompts.quality_applied')
+            : locale.t('generation.prompts.quality_disabled')}
+        </button>
       {/if}
       {#each styles.activeStyles as activeStyle (activeStyle.id)}
         <button

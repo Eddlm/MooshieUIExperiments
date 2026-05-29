@@ -447,6 +447,7 @@ const pt: Record<string, string> = {
   "generation.prompts.scheduling": "Agendamento de Prompt",
   "generation.prompts.scheduling_segments": "{count} segmento(s)",
   "generation.prompts.quality_applied": "Prompts de qualidade aplicados",
+  "generation.prompts.quality_disabled": "Prompts de qualidade desativados",
   "generation.prompts.anima_artist_tip": "Dica: Tags de artista começam com @ (ex: @artist_name)",
   "generation.prompt.category_all": "All",
   "generation.prompt.category_general": "General",
