@@ -337,7 +337,7 @@
   let showCheckpointDropdown = $state(false);
   let showLoraDropdown = $state<number | null>(null);
   let loraSearches = $state<Record<number, string>>({});
-  let loraDropdownListEls = $state<Record<number, HTMLDivElement | null>>({});
+  let activeLoraDropdownListEl = $state<HTMLDivElement | null>(null);
   let downloading = $state<string | null>(null);
   let downloadError = $state("");
   let modelSelectorRootEl = $state<HTMLDivElement | null>(null);
@@ -542,25 +542,6 @@
     generation.saveSettings();
     showLoraDropdown = null;
     loraSearches = { ...loraSearches, [index]: "" };
-  }
-
-  function setLoraDropdownListEl(index: number, node: HTMLDivElement | null) {
-    loraDropdownListEls = { ...loraDropdownListEls, [index]: node };
-  }
-
-  function bindLoraDropdownListEl(node: HTMLDivElement, index: number) {
-    setLoraDropdownListEl(index, node);
-    return {
-      update(nextIndex: number) {
-        if (nextIndex === index) return;
-        setLoraDropdownListEl(index, null);
-        index = nextIndex;
-        setLoraDropdownListEl(index, node);
-      },
-      destroy() {
-        setLoraDropdownListEl(index, null);
-      },
-    };
   }
 
   function isLoraSelected(index: number, name: string): boolean {
@@ -790,6 +771,7 @@
 
 // Model dropdown controls. On open, scroll the list to the selected item
   async function openCheckpointDropdown() {
+    showLoraDropdown = null;
     showCheckpointDropdown = true;
     await tick();
     const container = checkpointDropdownListEl;
@@ -813,9 +795,10 @@
   }
 
   async function openLoraDropdown(index: number) {
+    showCheckpointDropdown = false;
     showLoraDropdown = index;
     await tick();
-    const container = loraDropdownListEls[index];
+    const container = activeLoraDropdownListEl;
     const selectedRow = container?.querySelector<HTMLElement>('[data-selected="true"]');
     if (!container || !selectedRow) return;
 
@@ -1290,7 +1273,7 @@
                   placeholder={locale.t('generation.model.search_loras')}
                   class="w-full bg-neutral-750 border-b border-neutral-700 px-2 py-1.5 text-xs text-neutral-100 placeholder-neutral-500 focus:outline-none"
                 />
-                <div use:bindLoraDropdownListEl={i} class="overflow-y-auto max-h-36">
+                <div bind:this={activeLoraDropdownListEl} class="overflow-y-auto max-h-36">
                   {#each filteredLorasForIndex(i) as l}
                     <button
                       data-selected={isLoraSelected(i, l) ? "true" : undefined}
