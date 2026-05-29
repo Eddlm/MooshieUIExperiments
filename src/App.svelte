@@ -2579,11 +2579,6 @@
   <div
     class="lightbox-backdrop fixed inset-0 bg-black/90 z-50 flex {visionSimClass}"
     role="dialog"
-    onkeydown={(e) => {
-      if (e.key === "Escape") gallery.closeLightbox();
-      if (e.key === "ArrowLeft") navigateLightbox("prev");
-      if (e.key === "ArrowRight") navigateLightbox("next");
-    }}
     tabindex="-1"
     use:focusOnMount
   >
