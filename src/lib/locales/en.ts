@@ -471,6 +471,7 @@ const en: Record<string, string> = {
   "generation.prompts.scheduling_segments": "{count} segment(s)",
   "generation.prompts.quality_applied": "Quality prompts applied",
   "generation.prompts.quality_disabled": "Quality prompts disabled",
+  "generation.prompts.quality_badge_hint": "Left-click to toggle quality tags. Right-click to customize them.",
   "generation.prompts.anima_artist_tip": "Tip: Start artist tags with @ (e.g. @artist_name)",
   "generation.prompt.category_all": "All",
   "generation.prompt.category_general": "General",

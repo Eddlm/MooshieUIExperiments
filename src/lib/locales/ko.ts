@@ -448,6 +448,7 @@ const ko: Record<string, string> = {
   "generation.prompts.scheduling_segments": "{count}개 세그먼트",
   "generation.prompts.quality_applied": "품질 프롬프트 적용됨",
   "generation.prompts.quality_disabled": "품질 프롬프트 비활성화됨",
+  "generation.prompts.quality_badge_hint": "왼쪽 클릭으로 품질 태그를 전환하고, 오른쪽 클릭으로 설정을 엽니다.",
   "generation.prompts.anima_artist_tip": "팁: 아티스트 태그는 @로 시작하세요 (예: @artist_name)",
   "generation.prompt.category_all": "All",
   "generation.prompt.category_general": "General",

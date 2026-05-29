@@ -59,6 +59,10 @@
     });
   }
 
+  function focusOnMount(node: HTMLElement) {
+    node.focus();
+  }
+
   function toggleQualityTags() {
     generation.autoQualityTags = !generation.autoQualityTags;
     generation.saveSettings();
@@ -66,10 +70,6 @@
 
   function openQualityTagsModalFromContextMenu(event: MouseEvent) {
     event.preventDefault();
-    showQualityTagsModal = true;
-  }
-
-  function openQualityTagsModal() {
     showQualityTagsModal = true;
   }
 </script>
@@ -103,7 +103,7 @@
           class="shrink-0 text-[10px] px-2 py-0.5 rounded-full border transition-colors cursor-pointer {qualityTagsApplied
             ? 'bg-emerald-600/20 text-emerald-400 border-emerald-600/30 hover:bg-emerald-600/30'
             : 'bg-red-600/15 text-red-300 border-red-600/30 hover:bg-red-600/25'}"
-          title={locale.t('settings.performance.custom_quality_tags')}
+          title={locale.t('generation.prompts.quality_badge_hint')}
         >
           {qualityTagsApplied
             ? locale.t('generation.prompts.quality_applied')
@@ -320,7 +320,9 @@
 
 {#if showQualityTagsModal}
   <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+    use:focusOnMount
+    tabindex="-1"
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 outline-none"
     role="dialog"
     aria-modal="true"
     aria-label={locale.t('settings.performance.custom_quality_tags')}

@@ -458,6 +458,7 @@ const ja: Record<string, string> = {
   "generation.prompts.scheduling_segments": "{count} セグメント",
   "generation.prompts.quality_applied": "品質プロンプト適用済み",
   "generation.prompts.quality_disabled": "品質プロンプト無効",
+  "generation.prompts.quality_badge_hint": "左クリックで品質タグを切り替え、右クリックでカスタマイズします。",
   "generation.prompts.anima_artist_tip": "ヒント：アーティストタグは@で始めてください（例：@artist_name）",
   "generation.prompt.category_all": "All",
   "generation.prompt.category_general": "General",

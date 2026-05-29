@@ -448,6 +448,7 @@ const zh: Record<string, string> = {
   "generation.prompts.scheduling_segments": "{count} 个片段",
   "generation.prompts.quality_applied": "质量提示已应用",
   "generation.prompts.quality_disabled": "质量提示已禁用",
+  "generation.prompts.quality_badge_hint": "左键切换质量标签，右键打开自定义设置。",
   "generation.prompts.anima_artist_tip": "提示：艺术家标签以 @ 开头（例如 @artist_name）",
   "generation.prompt.category_all": "All",
   "generation.prompt.category_general": "General",
