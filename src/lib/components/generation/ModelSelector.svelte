@@ -5,7 +5,7 @@
   import { locale } from "../../stores/locale.svelte.js";
   import { downloadModel, findModelByHash, hashModelFile, readModelSpec, lookupCivitaiBaseModel, type ModelSpec, getComputeCapability } from "../../utils/api.js";
   import { ipcListen } from "../../utils/ipc.js";
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, tick } from "svelte";
   import InfoTip from "../ui/InfoTip.svelte";
   import { scrollCapture } from "../../utils/scrollCapture.js";
 
@@ -337,8 +337,11 @@
   let showCheckpointDropdown = $state(false);
   let showLoraDropdown = $state<number | null>(null);
   let loraSearches = $state<Record<number, string>>({});
+  let loraDropdownListEls = $state<Record<number, HTMLDivElement | null>>({});
   let downloading = $state<string | null>(null);
   let downloadError = $state("");
+  let modelSelectorRootEl = $state<HTMLDivElement | null>(null);
+  let checkpointDropdownListEl = $state<HTMLDivElement | null>(null);
 
   /**
    * Detected NVIDIA compute capability. `null` until probed; remains `null`
@@ -460,7 +463,24 @@
 
   let unlistenDownload: (() => void) | null = null;
 
+  function handleDocumentPointerDown(event: PointerEvent) {
+    const target = event.target;
+    if (!(target instanceof Node)) return;
+    if (modelSelectorRootEl?.contains(target)) return;
+    showCheckpointDropdown = false;
+    showLoraDropdown = null;
+  }
+
+  function handleDocumentKeydown(event: KeyboardEvent) {
+    if (event.key !== "Escape") return;
+    showCheckpointDropdown = false;
+    showLoraDropdown = null;
+  }
+
   onMount(async () => {
+    document.addEventListener("pointerdown", handleDocumentPointerDown);
+    document.addEventListener("keydown", handleDocumentKeydown);
+
     unlistenDownload = await ipcListen("download:progress", (event: any) => {
       const data = event.payload as {
         filename: string;
@@ -499,6 +519,8 @@
   });
 
   onDestroy(() => {
+    document.removeEventListener("pointerdown", handleDocumentPointerDown);
+    document.removeEventListener("keydown", handleDocumentKeydown);
     unlistenDownload?.();
   });
 
@@ -520,6 +542,29 @@
     generation.saveSettings();
     showLoraDropdown = null;
     loraSearches = { ...loraSearches, [index]: "" };
+  }
+
+  function setLoraDropdownListEl(index: number, node: HTMLDivElement | null) {
+    loraDropdownListEls = { ...loraDropdownListEls, [index]: node };
+  }
+
+  function bindLoraDropdownListEl(node: HTMLDivElement, index: number) {
+    setLoraDropdownListEl(index, node);
+    return {
+      update(nextIndex: number) {
+        if (nextIndex === index) return;
+        setLoraDropdownListEl(index, null);
+        index = nextIndex;
+        setLoraDropdownListEl(index, node);
+      },
+      destroy() {
+        setLoraDropdownListEl(index, null);
+      },
+    };
+  }
+
+  function isLoraSelected(index: number, name: string): boolean {
+    return generation.loras[index]?.name === name;
   }
 
   function displayLoraName(fullPath: string): string {
@@ -644,18 +689,46 @@
     return vaes.find((v) => v.toLowerCase().includes("sdxl_vae")) ?? vaes[0];
   }
 
+  interface DropdownItem {
+    type: "checkpoint" | "recommended" | "diffusion";
+    label: string;
+    value: string;
+    rec?: RecommendedModel;
+    installed: boolean;
+    size?: string;
+    gateHint?: string;
+  }
+
+  function matchesRecommendedModel(rec: RecommendedModel): boolean {
+    if (rec.splitModel) {
+      if (!generation.useSplitModel || !generation.diffusionModel) return false;
+      const expected = rec.splitModel.diffusionModel.filename;
+      const resolved = resolvedFilename(rec.splitModel.diffusionModel);
+      return generation.diffusionModel === expected || generation.diffusionModel === resolved;
+    }
+    if (rec.checkpoint) {
+      if (generation.useSplitModel || !generation.checkpoint) return false;
+      const expected = rec.checkpoint.filename;
+      const resolved = resolvedFilename(rec.checkpoint);
+      return generation.checkpoint === expected || generation.checkpoint === resolved;
+    }
+    return false;
+  }
+
+  function isDropdownItemSelected(item: DropdownItem): boolean {
+    if (item.type === "recommended" && item.rec) {
+      return matchesRecommendedModel(item.rec);
+    }
+    if (item.type === "diffusion") {
+      return generation.useSplitModel && generation.diffusionModel === item.value;
+    }
+    return !generation.useSplitModel && generation.checkpoint === item.value;
+  }
+
   /** Combine installed checkpoints + recommended models into a single filtered list */
   const filteredItems = $derived(() => {
     const q = checkpointSearch.toLowerCase();
-    const items: {
-      type: "checkpoint" | "recommended" | "diffusion";
-      label: string;
-      value: string;
-      rec?: RecommendedModel;
-      installed: boolean;
-      size?: string;
-      gateHint?: string;
-    }[] = [];
+    const items: DropdownItem[] = [];
 
     // Add recommended models first
     for (const rec of recommendedModels) {
@@ -715,6 +788,50 @@
     return items;
   });
 
+// Model dropdown controls. On open, scroll the list to the selected item
+  async function openCheckpointDropdown() {
+    showCheckpointDropdown = true;
+    await tick();
+    const container = checkpointDropdownListEl;
+    const selectedRow = container?.querySelector<HTMLElement>('[data-selected="true"]');
+    if (!container || !selectedRow) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const rowRect = selectedRow.getBoundingClientRect();
+    const rowTop = rowRect.top - containerRect.top + container.scrollTop;
+    container.scrollTop = Math.max(0, rowTop - 8);
+  }
+  function closeCheckpointDropdown() {
+    showCheckpointDropdown = false;
+  }
+  function toggleCheckpointDropdown() {
+    if (showCheckpointDropdown) {
+      closeCheckpointDropdown();
+      return;
+    }
+    void openCheckpointDropdown();
+  }
+
+  async function openLoraDropdown(index: number) {
+    showLoraDropdown = index;
+    await tick();
+    const container = loraDropdownListEls[index];
+    const selectedRow = container?.querySelector<HTMLElement>('[data-selected="true"]');
+    if (!container || !selectedRow) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const rowRect = selectedRow.getBoundingClientRect();
+    const rowTop = rowRect.top - containerRect.top + container.scrollTop;
+    container.scrollTop = Math.max(0, rowTop - 8);
+  }
+  function toggleLoraDropdown(index: number) {
+    if (showLoraDropdown === index) {
+      showLoraDropdown = null;
+      return;
+    }
+    void openLoraDropdown(index);
+  }
+
   function selectCheckpoint(name: string) {
     // Clear split model state when selecting a normal checkpoint
     generation.useSplitModel = false;
@@ -725,12 +842,12 @@
     generation.applyModelMetadata({ modelspecArchitecture: null, civitaiBaseModel: null });
     generation.applyModelSpecificPreset(name);
     checkpointSearch = "";
-    showCheckpointDropdown = false;
+    closeCheckpointDropdown();
   }
 
   /** Use a diffusion/UNET file discovered on disk (not in the curated recommended list). */
   function selectCustomDiffusion(filename: string) {
-    showCheckpointDropdown = false;
+    closeCheckpointDropdown();
     checkpointSearch = "";
     const { clip, clipType } = pickSplitModelClip(filename, models.textEncoders);
     generation.useSplitModel = true;
@@ -743,7 +860,7 @@
   }
 
   async function selectRecommended(rec: RecommendedModel) {
-    showCheckpointDropdown = false;
+    closeCheckpointDropdown();
     checkpointSearch = "";
 
     // Check each component individually and download only what's missing
@@ -876,33 +993,23 @@
   /** Display name for the current model */
   const displayCheckpoint = $derived(() => {
     if (generation.useSplitModel && generation.diffusionModel) {
-      const match = recommendedModels.find((r) => {
-        if (!r.splitModel) return false;
-        const expected = r.splitModel.diffusionModel.filename;
-        const resolved = resolvedFilename(r.splitModel.diffusionModel);
-        return generation.diffusionModel === expected || generation.diffusionModel === resolved;
-      });
+      const match = recommendedModels.find((r) => r.splitModel && matchesRecommendedModel(r));
       return match?.label ?? generation.diffusionModel;
     }
     // Check if current checkpoint matches a recommended model (by filename or hash-resolved name)
-    const recMatch = recommendedModels.find((r) => {
-      if (!r.checkpoint) return false;
-      const expected = r.checkpoint.filename;
-      const resolved = resolvedFilename(r.checkpoint);
-      return generation.checkpoint === expected || generation.checkpoint === resolved;
-    });
+    const recMatch = recommendedModels.find((r) => r.checkpoint && matchesRecommendedModel(r));
     if (recMatch) return recMatch.label;
     return generation.checkpoint || locale.t('generation.model.select_checkpoint');
   });
 </script>
 
-<div class="space-y-3">
+<div bind:this={modelSelectorRootEl} class="space-y-3">
   <!-- Checkpoint -->
   <div class="relative">
     <label class="block text-xs text-neutral-400 mb-1">{locale.t('generation.model.checkpoint')}<InfoTip text={locale.t('generation.model.checkpoint_tip')} /></label>
     <button
       class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-left text-neutral-100 hover:border-neutral-600 focus:outline-none focus:border-indigo-500 transition-colors truncate flex items-center gap-2"
-      onclick={() => (showCheckpointDropdown = !showCheckpointDropdown)}
+      onclick={toggleCheckpointDropdown}
       disabled={downloading !== null}
     >
       <span class="truncate">{displayCheckpoint()}</span>
@@ -958,14 +1065,16 @@
           placeholder={locale.t('generation.model.search_placeholder')}
           class="w-full bg-neutral-750 border-b border-neutral-700 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-500 focus:outline-none"
         />
-        <div class="overflow-y-auto max-h-48">
+        <div bind:this={checkpointDropdownListEl} class="overflow-y-auto max-h-48">
           {#each filteredItems() as item}
             {#if item.type === "recommended"}
               <button
-                class="w-full text-left px-3 py-1.5 hover:bg-neutral-700 flex items-center justify-between gap-2 {item.installed ? 'text-indigo-300' : 'text-indigo-400'}"
+                data-selected={isDropdownItemSelected(item) ? "true" : undefined}
+                class="w-full text-left px-3 py-1.5 flex items-center justify-between gap-2 transition-colors {isDropdownItemSelected(item) ? 'bg-indigo-500/15 ring-1 ring-inset ring-indigo-500/40' : 'hover:bg-neutral-700'} {item.installed ? 'text-indigo-300' : 'text-indigo-400'}"
                 onclick={() => item.rec && selectRecommended(item.rec)}
+                title={item.label}
               >
-                <span class="text-sm truncate">
+                <span class="min-w-0 flex-1 text-sm whitespace-normal break-words leading-snug">
                   {item.label}
                   {#if item.gateHint}
                     <span class="ml-1 rounded border border-emerald-500/40 bg-emerald-500/10 px-1 py-0.5 align-middle text-[9px] uppercase tracking-wide text-emerald-300">{item.gateHint}</span>
@@ -980,15 +1089,19 @@
               </button>
             {:else if item.type === "diffusion"}
               <button
-                class="w-full text-left px-3 py-1.5 text-sm text-neutral-200 hover:bg-neutral-700 truncate"
+                data-selected={isDropdownItemSelected(item) ? "true" : undefined}
+                class="w-full text-left px-3 py-1.5 text-sm whitespace-normal break-words leading-snug transition-colors {isDropdownItemSelected(item) ? 'bg-indigo-500/15 ring-1 ring-inset ring-indigo-500/40 text-indigo-200' : 'text-neutral-200 hover:bg-neutral-700'}"
                 onclick={() => selectCustomDiffusion(item.value)}
+                title={item.label}
               >
                 {item.label}
               </button>
             {:else}
               <button
-                class="w-full text-left px-3 py-1.5 text-sm text-neutral-200 hover:bg-neutral-700 truncate"
+                data-selected={isDropdownItemSelected(item) ? "true" : undefined}
+                class="w-full text-left px-3 py-1.5 text-sm whitespace-normal break-words leading-snug transition-colors {isDropdownItemSelected(item) ? 'bg-indigo-500/15 ring-1 ring-inset ring-indigo-500/40 text-indigo-200' : 'text-neutral-200 hover:bg-neutral-700'}"
                 onclick={() => selectCheckpoint(item.value)}
+                title={item.label}
               >
                 {item.label}
               </button>
@@ -1163,8 +1276,7 @@
               class="w-full bg-neutral-750 border border-neutral-600 rounded px-2 py-1 text-xs text-left truncate transition-colors {lora.enabled
                 ? 'text-neutral-100 hover:border-neutral-500'
                 : 'text-neutral-500'}"
-              onclick={() =>
-                (showLoraDropdown = showLoraDropdown === i ? null : i)}
+              onclick={() => toggleLoraDropdown(i)}
             >
               {displayLoraName(lora.name)}
             </button>
@@ -1178,10 +1290,11 @@
                   placeholder={locale.t('generation.model.search_loras')}
                   class="w-full bg-neutral-750 border-b border-neutral-700 px-2 py-1.5 text-xs text-neutral-100 placeholder-neutral-500 focus:outline-none"
                 />
-                <div class="overflow-y-auto max-h-36">
+                <div use:bindLoraDropdownListEl={i} class="overflow-y-auto max-h-36">
                   {#each filteredLorasForIndex(i) as l}
                     <button
-                      class="w-full text-left px-2 py-1 text-xs text-neutral-200 hover:bg-neutral-700 truncate"
+                      data-selected={isLoraSelected(i, l) ? "true" : undefined}
+                      class="w-full text-left px-2 py-1 text-xs truncate transition-colors {isLoraSelected(i, l) ? 'bg-indigo-500/15 ring-1 ring-inset ring-indigo-500/40 text-indigo-200' : 'text-neutral-200 hover:bg-neutral-700'}"
                       onclick={() => selectLora(i, l)}
                     >
                       {l}
