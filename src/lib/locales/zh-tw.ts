@@ -313,6 +313,7 @@ const zhTw: Record<string, string> = {
   "settings.performance.reset_defaults": "重設為預設",
   "settings.performance.anima": "Anima",
   "settings.performance.illustrious": "Illustrious / NoobAI",
+  "settings.performance.pony": "Pony",
   "settings.performance.nanosaur": "Nanosaur",
   "settings.performance.positive": "正面",
   "settings.performance.negative": "負面",

@@ -305,6 +305,7 @@ const en: Record<string, string> = {
   "settings.performance.reset_defaults": "Reset to defaults",
   "settings.performance.anima": "Anima",
   "settings.performance.illustrious": "Illustrious / NoobAI",
+  "settings.performance.pony": "Pony",
   "settings.performance.nanosaur": "Nanosaur",
   "settings.performance.positive": "Positive",
   "settings.performance.negative": "Negative",

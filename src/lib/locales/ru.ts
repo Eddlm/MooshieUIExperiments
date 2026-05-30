@@ -313,6 +313,7 @@ const ru: Record<string, string> = {
   "settings.performance.reset_defaults": "Сбросить на стандартные",
   "settings.performance.anima": "Anima",
   "settings.performance.illustrious": "Illustrious / NoobAI",
+  "settings.performance.pony": "Pony",
   "settings.performance.nanosaur": "Nanosaur",
   "settings.performance.positive": "Позитивный",
   "settings.performance.negative": "Негативный",

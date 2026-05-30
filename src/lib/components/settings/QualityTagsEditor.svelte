@@ -94,7 +94,7 @@
 
   <!-- Pony Tags -->
   <div class="space-y-1.5">
-    <p class="text-[10px] text-neutral-500 font-medium uppercase tracking-wide">Pony</p>
+    <p class="text-[10px] text-neutral-500 font-medium uppercase tracking-wide">{locale.t('settings.performance.pony')}</p>
     <div>
       <label for="pony-pos-quality" class="text-[10px] text-neutral-500">{locale.t('settings.performance.positive')}</label>
       <textarea

@@ -313,6 +313,7 @@ const ko: Record<string, string> = {
   "settings.performance.reset_defaults": "기본값으로 리셋",
   "settings.performance.anima": "Anima",
   "settings.performance.illustrious": "Illustrious / NoobAI",
+  "settings.performance.pony": "Pony",
   "settings.performance.nanosaur": "Nanosaur",
   "settings.performance.positive": "긍정",
   "settings.performance.negative": "부정",

@@ -287,6 +287,7 @@ const es: Record<string, string> = {
   "settings.performance.reset_defaults": "Restablecer valores predeterminados",
   "settings.performance.anima": "Anima",
   "settings.performance.illustrious": "Illustrious / NoobAI",
+  "settings.performance.pony": "Pony",
   "settings.performance.nanosaur": "Nanosaur",
   "settings.performance.positive": "Positivo",
   "settings.performance.negative": "Negativo",

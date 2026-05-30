@@ -313,6 +313,7 @@ const zh: Record<string, string> = {
   "settings.performance.reset_defaults": "重置为默认",
   "settings.performance.anima": "Anima",
   "settings.performance.illustrious": "Illustrious / NoobAI",
+  "settings.performance.pony": "Pony",
   "settings.performance.nanosaur": "Nanosaur",
   "settings.performance.positive": "正面提示词",
   "settings.performance.negative": "负面提示词",
