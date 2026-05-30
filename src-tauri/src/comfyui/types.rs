@@ -151,6 +151,9 @@ pub struct GenerationParams {
     /// Detected model architecture from the frontend (e.g. "sd3", "sdxl", "sd15", "illustrious", "unknown")
     #[serde(default)]
     pub model_architecture: String,
+    /// True when metadata or filename indicates a v-pred SDXL variant.
+    #[serde(default)]
+    pub is_vpred_model: bool,
     /// Whether the model uses rectified flow scheduling (detected from filename or architecture)
     #[serde(default)]
     pub uses_rectified_flow: bool,
