@@ -769,7 +769,7 @@
     return items;
   });
 
-// Model dropdown controls. On open, scroll the list to the selected item
+  // Model dropdown controls. On open, scroll the list to the selected item
   async function openCheckpointDropdown() {
     showLoraDropdown = null;
     showCheckpointDropdown = true;
