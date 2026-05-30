@@ -38,7 +38,7 @@ class ModelsStore {
       // layout) or `clip/` (legacy ComfyUI / Forge layout). Fetch both and
       // merge so the picker doesn't miss encoders in the legacy directory
       // (e.g. `qwen_3_8b_fp4mixed.safetensors` placed under `clip/`).
-      const [checkpoints, vaes, loras, samplerInfo, embeddings, upscaleModels, diffusionModels, textEncoders, clipEncoders, controlnetModels, ultralyticsModels] =
+      const [checkpoints, vaes, loras, samplerInfo, embeddings, upscaleModels, diffusionModels, unetModels, textEncoders, clipEncoders, controlnetModels, ultralyticsModels] =
         await Promise.all([
           getModels("checkpoints"),
           getModels("vae"),
@@ -47,6 +47,7 @@ class ModelsStore {
           getEmbeddings(),
           getModels("upscale_models"),
           getModels("diffusion_models").catch(() => [] as string[]),
+          getModels("unet").catch(() => [] as string[]),
           getModels("text_encoders").catch(() => [] as string[]),
           getModels("clip").catch(() => [] as string[]),
           getModels("controlnet").catch(() => [] as string[]),
@@ -57,6 +58,14 @@ class ModelsStore {
       console.log("ModelsStore: got samplers:", samplerInfo);
 
       const mergedEncoders = Array.from(new Set([...(textEncoders ?? []), ...(clipEncoders ?? [])]));
+
+      const [mergedDiffusionModels, mergedUnetModels] = await Promise.all([
+        mergeWithDiskModels("diffusion_models", diffusionModels),
+        mergeWithDiskModels("unet", unetModels),
+      ]);
+      const mergedDiffusionModelNames = Array.from(new Set([...mergedDiffusionModels, ...mergedUnetModels])).sort((a, b) =>
+        a.localeCompare(b, undefined, { sensitivity: "base" }),
+      );
 
       [
         this.checkpoints,
@@ -74,7 +83,7 @@ class ModelsStore {
         mergeWithDiskModels("loras", loras),
         mergeWithDiskModels("embeddings", embeddings),
         mergeWithDiskModels("upscale_models", upscaleModels),
-        mergeWithDiskModels("diffusion_models", diffusionModels),
+        mergedDiffusionModelNames,
         mergeWithDiskModels("text_encoders", mergedEncoders),
         mergeWithDiskModels("controlnet", controlnetModels),
         mergeWithDiskModels("ultralytics", ultralyticsModels),
