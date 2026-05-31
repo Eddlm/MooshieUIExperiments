@@ -10,6 +10,8 @@ const FAMILY_ORDER: ModelFamily[] = [
   "sdxl",
   "sd15",
   "flux",
+  "zib",
+  "zit",
   "sd3",
   "nanosaur",
   "mugen",
