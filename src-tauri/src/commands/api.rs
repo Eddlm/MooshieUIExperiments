@@ -2976,6 +2976,7 @@ pub async fn save_model_sidecar_thumbnail(
 
 #[cfg(feature = "desktop")]
 #[tauri::command]
+// TODO: refactor src-tauri/src/commands/api.rs and src-tauri/src/webserver.rs
 pub async fn civitai_search_models(
     state: State<'_, Arc<AppState>>,
     params: CivitaiSearchParams,
