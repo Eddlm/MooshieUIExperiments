@@ -486,13 +486,9 @@ pub fn is_anima_architecture(params: &GenerationParams) -> bool {
     name.contains("anima")
 }
 
-/// Returns true when metadata or filename indicates a v-pred SDXL variant.
+/// Returns the frontend v-pred flag.
 pub fn is_vpred_model(params: &GenerationParams) -> bool {
-    if params.is_vpred_model {
-        return true;
-    }
-    let name = model_name_lower(params);
-    name.contains("vpred") || name.contains("v-pred")
+    params.is_vpred_model
 }
 
 /// Returns true when the model needs a 16-channel latent (SD3, Flux, Anima/WAN).
@@ -829,23 +825,17 @@ fn inject_rectified_flow(result: &mut WorkflowResult, params: &GenerationParams)
     }
 }
 
-/// Returns true when the model needs `ModelSamplingDiscrete` with v_prediction + zsnr.
-pub fn needs_vpred_zsnr_sampling(params: &GenerationParams) -> bool {
+/// Patch SDXL-family v-prediction models with zero-terminal SNR discrete sampling.
+/// ComfyUI model loader already detects most v-pred models on its own, except when the header (in .safetensors) does not contain a top-level v_pred entry.
+fn inject_vpred_zsnr_sampling(result: &mut WorkflowResult, params: &GenerationParams) {
     if is_sd3_architecture(params)
         || is_flux_architecture(params)
         || is_auraflow_architecture(params)
         || is_mugen_architecture(params)
         || is_nanosaur_architecture(params)
         || is_anima_architecture(params)
+        || !is_vpred_model(params)
     {
-        return false;
-    }
-    is_vpred_model(params)
-}
-
-/// Patch SDXL-family v-prediction models with zero-terminal SNR discrete sampling.
-fn inject_vpred_zsnr_sampling(result: &mut WorkflowResult, params: &GenerationParams) {
-    if !needs_vpred_zsnr_sampling(params) {
         return;
     }
 
