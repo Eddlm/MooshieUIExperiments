@@ -2449,6 +2449,35 @@ fn model_family_from_filename(filename: &str) -> Option<&'static str> {
     None
 }
 
+fn turbo_model_variant_from_filename(filename: &str) -> &'static str {
+    let name = filename.trim().to_lowercase();
+    if name.is_empty() {
+        return "none";
+    }
+    if name.contains("dmd2") {
+        return "dmd2";
+    }
+    if name.contains("dmd") {
+        return "dmd";
+    }
+    if name.contains("schnell") {
+        return "schnell";
+    }
+    if name.contains("turbo") {
+        return "turbo";
+    }
+    if name.contains("lightning") {
+        return "lightning";
+    }
+    if name.contains("lcm") {
+        return "lcm";
+    }
+    if name.contains("hyper") {
+        return "hyper";
+    }
+    "none"
+}
+
 fn read_json_sidecar(path: &std::path::Path) -> Result<Option<Value>, AppError> {
     if !path.is_file() {
         return Ok(None);
@@ -2941,6 +2970,10 @@ pub(crate) async fn read_modelspec_internal(
     }
 
     let mut result = std::collections::HashMap::new();
+    result.insert(
+        "turbo_model_variant".to_string(),
+        turbo_model_variant_from_filename(filename).to_string(),
+    );
     if let Some(base_model) = read_comfyui_lora_manager_metadata(&path)? {
         result.insert("base_model".to_string(), base_model);
     } else if let Some(base_model) = read_stability_matrix_metadata(&path)? {
