@@ -65,11 +65,11 @@
 
   const recommendedModels: RecommendedModel[] = [
     {
-      label: "SIH-1.5",
-      size: "~7.5 GB",
+      label: "Juice",
+      size: "~6.9 GB",
       checkpoint: {
-        filename: "SIH-1.5.safetensors",
-        url: "https://huggingface.co/Enferlain/juice/resolve/main/noob/%CE%A3%CE%99%CE%97-1.5.safetensors",
+        filename: "Juice.safetensors",
+        url: "https://huggingface.co/Enferlain/juice/resolve/main/noob/2048/v2/21862-seele_pop3.safetensors",
         category: "checkpoints",
       },
       vaeModel: {
