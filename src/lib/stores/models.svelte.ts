@@ -55,7 +55,7 @@ class ModelsStore {
       // layout) or `clip/` (legacy ComfyUI / Forge layout). Fetch both and
       // merge so the picker doesn't miss encoders in the legacy directory
       // (e.g. `qwen_3_8b_fp4mixed.safetensors` placed under `clip/`).
-      const [checkpoints, vaes, loras, samplerInfo, embeddings, upscaleModels, diffusionModels, textEncoders, clipEncoders, controlnetModels, ultralyticsModels] =
+      const [checkpoints, vaes, loras, samplerInfo, embeddings, upscaleModels, diffusionModels, unetModels, textEncoders, clipEncoders, controlnetModels, ultralyticsModels] =
         await Promise.all([
           getModels("checkpoints"),
           getModels("vae"),
@@ -64,6 +64,7 @@ class ModelsStore {
           getEmbeddings(),
           getModels("upscale_models"),
           getModels("diffusion_models").catch(() => [] as string[]),
+          getModels("unet").catch(() => [] as string[]),
           getModels("text_encoders").catch(() => [] as string[]),
           getModels("clip").catch(() => [] as string[]),
           getModels("controlnet").catch(() => [] as string[]),
@@ -74,6 +75,9 @@ class ModelsStore {
       console.log("ModelsStore: got samplers:", samplerInfo);
 
       const mergedEncoders = Array.from(new Set([...(textEncoders ?? []), ...(clipEncoders ?? [])]));
+      const mergedDiffusionModels = Array.from(new Set([...(diffusionModels ?? []), ...(unetModels ?? [])]));
+      let diffusionModelFiles: string[];
+      let unetModelFiles: string[];
 
       [
         this.checkpoints,
@@ -81,7 +85,8 @@ class ModelsStore {
         this.loras,
         this.embeddings,
         this.upscaleModels,
-        this.diffusionModels,
+        diffusionModelFiles,
+        unetModelFiles,
         this.textEncoders,
         this.controlnetModels,
         this.ultralyticsModels,
@@ -91,11 +96,15 @@ class ModelsStore {
         mergeWithDiskModels("loras", loras),
         mergeWithDiskModels("embeddings", embeddings),
         mergeWithDiskModels("upscale_models", upscaleModels),
-        mergeWithDiskModels("diffusion_models", diffusionModels),
+        mergeWithDiskModels("diffusion_models", mergedDiffusionModels),
+        mergeWithDiskModels("unet", unetModels),
         mergeWithDiskModels("text_encoders", mergedEncoders),
         mergeWithDiskModels("controlnet", controlnetModels),
         mergeWithDiskModels("ultralytics", ultralyticsModels),
       ]);
+      this.diffusionModels = Array.from(new Set([...diffusionModelFiles, ...unetModelFiles])).sort((a, b) =>
+        a.localeCompare(b, undefined, { sensitivity: "base" }),
+      );
       this.samplers = samplerInfo.samplers;
       this.schedulers = samplerInfo.schedulers;
     } catch (e) {
