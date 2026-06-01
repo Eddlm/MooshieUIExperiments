@@ -511,8 +511,11 @@ pub fn needs_sd3_latent(params: &GenerationParams) -> bool {
     {
         return true;
     }
+    if params.model_architecture == "qwen" || params.model_architecture == "wan" {
+        return true;
+    }
     let name = model_name_lower(params);
-    name.contains("anima") || name.contains("wan")
+    name.contains("anima") || name.contains("wan") || name.contains("qwen")
 }
 
 /// Lowercase model name for heuristic checks.

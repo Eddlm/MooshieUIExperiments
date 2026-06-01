@@ -433,7 +433,7 @@ class GenerationStore {
 
   /** True when the selected model is an Anima variant (split diffusion model). */
   get isAnima(): boolean {
-    return this.detectedArchitecture === "anima";
+    return signalsIndicateAnima(this.modelFamilySignals());
   }
 
   /** True when the selected model is an Illustrious/NoobAI family variant. */
@@ -540,7 +540,14 @@ class GenerationStore {
 
   /** True when the model uses a 16-channel latent space (SD3, Flux, Anima, Wan, Qwen). */
   get needsSd3Latent(): boolean {
-    return this.isSd3 || this.isFlux || this.isAnima || this.isWan || this.isQwen;
+    return (
+      this.isSd3 ||
+      this.isFlux ||
+      this.isFlux2 ||
+      this.isAnima ||
+      this.isWan ||
+      this.isQwen
+    );
   }
 
   // TODO:
@@ -1056,10 +1063,19 @@ class GenerationStore {
         break;
 
       case "sdxl":
+        preset = {
+          steps: this.hasTurboModelVariant ? 6 : 20,
+          cfg: this.hasTurboModelVariant ? 2.0 : 1.4,
+          samplerName: this.hasTurboModelVariant ? "euler" : "euler_cfg_pp",
+          scheduler: this.hasTurboModelVariant ? "normal" : "sgm_uniform",
+          width: 1024,
+          height: 1024,
+        };
+        break;
+
       case "mugen":
       case "unknown":
       default:
-        // Unknown falls back to safe SDXL-like defaults so sampler/scheduler never stay unset.
         preset = {
           steps: this.hasTurboModelVariant ? 6 : 30,
           cfg: this.hasTurboModelVariant ? 2.0 : 4.0,

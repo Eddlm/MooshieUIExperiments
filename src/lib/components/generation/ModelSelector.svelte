@@ -288,8 +288,10 @@
     if (!currentModelMetadataKey()) return "";
     const manualOverride = currentFamilyOverride();
     if (manualOverride) return manualOverride;
-    if (isModelMetadataLoading) return "detecting...";
-    return generation.detectedArchitecture === "unknown" ? "undefined" : generation.detectedArchitecture;
+    if (isModelMetadataLoading) return locale.t("generation.model.architecture_detecting");
+    return generation.detectedArchitecture === "unknown"
+      ? locale.t("generation.model.architecture_unknown")
+      : generation.detectedArchitecture;
   }
 
   function applyCurrentModelFamilyOverride(family: ModelFamily | null): void {
@@ -871,20 +873,10 @@
     generation.clipModel = null;
     generation.clipType = null;
     generation.checkpoint = name;
-    generation.applyModelMetadata({
-      modelspecPredictionType: null,
-      modelspecPredictKey: null,
-      modelspecHeaderVPred: false,
-      modelFamily: "unknown",
-      modelIsSdxlLike: false,
-      modelTurboVariant: "none",
-      modelRecommendedVae: null,
-      modelRecommendedClipModel: null,
-      modelRecommendedClipType: null,
-    });
-    generation.applyModelSpecificPreset();
+    loadedModelMetadataKey = "";
     checkpointSearch = "";
     closeCheckpointDropdown();
+    // loadModelSpec + applyModelSpecificPreset run via $effect when checkpoint changes
   }
 
   /** Use a diffusion model file discovered on disk (not in the curated recommended list). */
@@ -1052,7 +1044,7 @@
           <button
             type="button"
             class="rounded-full border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-[10px] text-neutral-300 hover:border-neutral-600"
-            title="Detected model architecture"
+            title={locale.t("generation.model.architecture_picker_title")}
             onclick={() => showArchitecturePicker = !showArchitecturePicker}
           >
             {architectureBadgeLabel()}
