@@ -3711,7 +3711,7 @@ async fn dispatch_command(
         }
         "fetch_cached_image" => {
             let url = args["url"].as_str().ok_or("Missing url")?.to_string();
-            let data_url = commands::api::fetch_cached_image_data_url(state.app.as_ref(), &url)
+            let data_url = commands::api::fetch_cached_image_data_url(state.as_ref(), &url)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(serde_json::json!(data_url))
