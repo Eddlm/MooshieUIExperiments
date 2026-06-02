@@ -207,6 +207,28 @@ fn unauthorized_response(msg: &str) -> Response {
         .into_response()
 }
 
+fn is_gallery_image_filename(name: &str) -> bool {
+    name.ends_with(".png")
+        || name.ends_with(".jpg")
+        || name.ends_with(".jpeg")
+        || name.ends_with(".webp")
+        || name.ends_with(".jxl")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gallery_image_filter_includes_jxl() {
+        assert!(is_gallery_image_filename("generated.png"));
+        assert!(is_gallery_image_filename("generated.webp"));
+        assert!(is_gallery_image_filename("generated.jxl"));
+        assert!(!is_gallery_image_filename("users"));
+        assert!(!is_gallery_image_filename("notes.txt"));
+    }
+}
+
 fn forbidden_response(msg: &str) -> Response {
     (
         StatusCode::FORBIDDEN,
@@ -1253,6 +1275,10 @@ async fn thumbnail_handler(
             None
         }
     };
+    let role = resolve_role(&state, &headers, &remote);
+    if role == UserRole::Anonymous && username.is_none() && !is_localhost(&remote) {
+        return unauthorized_response("Authentication required");
+    }
     let gallery_dir = match user_gallery_dir(username.as_deref()) {
         Some(d) => d,
         None => {
@@ -1307,6 +1333,10 @@ async fn gallery_image_handler(
             None
         }
     };
+    let role = resolve_role(&state, &headers, &remote);
+    if role == UserRole::Anonymous && username.is_none() && !is_localhost(&remote) {
+        return unauthorized_response("Authentication required");
+    }
     let gallery_dir = match user_gallery_dir(username.as_deref()) {
         Some(d) => d,
         None => {
@@ -2210,11 +2240,7 @@ async fn dispatch_command(
                         return None;
                     }
                     let name = entry.file_name().to_string_lossy().into_owned();
-                    if name.ends_with(".png")
-                        || name.ends_with(".jpg")
-                        || name.ends_with(".jpeg")
-                        || name.ends_with(".webp")
-                    {
+                    if is_gallery_image_filename(&name) {
                         Some((entry.metadata().ok()?.modified().ok()?, name))
                     } else {
                         None
@@ -2240,11 +2266,7 @@ async fn dispatch_command(
                         return None;
                     }
                     let name = entry.file_name().to_string_lossy().into_owned();
-                    if !(name.ends_with(".png")
-                        || name.ends_with(".jpg")
-                        || name.ends_with(".jpeg")
-                        || name.ends_with(".webp"))
-                    {
+                    if !is_gallery_image_filename(&name) {
                         return None;
                     }
                     let metadata = entry.metadata().ok()?;
@@ -3689,16 +3711,10 @@ async fn dispatch_command(
         }
         "fetch_cached_image" => {
             let url = args["url"].as_str().ok_or("Missing url")?.to_string();
-            let resp = state
-                .http_client
-                .get(&url)
-                .send()
+            let data_url = commands::api::fetch_cached_image_data_url(state.app.as_ref(), &url)
                 .await
                 .map_err(|e| e.to_string())?;
-            let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
-            use base64::{engine::general_purpose::STANDARD, Engine};
-            let b64 = STANDARD.encode(&bytes);
-            Ok(serde_json::json!(b64))
+            Ok(serde_json::json!(data_url))
         }
 
         // --- ComfyUI node checks ---
@@ -4873,11 +4889,7 @@ async fn storage_info_handler(
                     continue;
                 }
                 let name = entry.file_name().to_string_lossy().into_owned();
-                if !(name.ends_with(".png")
-                    || name.ends_with(".jpg")
-                    || name.ends_with(".jpeg")
-                    || name.ends_with(".webp"))
-                {
+                if !is_gallery_image_filename(&name) {
                     continue;
                 }
                 if let Ok(meta) = entry.metadata() {

@@ -2478,7 +2478,10 @@ fn parse_civitai_image_url(url: &str) -> Result<reqwest::Url, AppError> {
     Ok(parsed)
 }
 
-async fn fetch_civitai_image_bytes(state: &AppState, url: &str) -> Result<Vec<u8>, AppError> {
+pub(crate) async fn fetch_civitai_image_bytes(
+    state: &AppState,
+    url: &str,
+) -> Result<Vec<u8>, AppError> {
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .build()
@@ -4082,7 +4085,7 @@ pub async fn append_frontend_logs(lines: Vec<String>) -> Result<(), AppError> {
 }
 
 /// Detect the MIME type of image bytes from magic bytes.
-fn detect_image_mime(bytes: &[u8]) -> &'static str {
+pub(crate) fn detect_image_mime(bytes: &[u8]) -> &'static str {
     if bytes.starts_with(b"\x89PNG") {
         "image/png"
     } else if bytes.starts_with(b"\xff\xd8") {
@@ -4096,17 +4099,9 @@ fn detect_image_mime(bytes: &[u8]) -> &'static str {
     }
 }
 
-/// Fetch a remote image URL through the Rust backend (with CivitAI auth headers if
-/// configured), caching the raw bytes to `{app_data_dir}/image_cache/{url_sha256}`.
-///
-/// Returns the image as a `"data:<mime>;base64,..."` string so the WebView can
-/// display it without making its own unauthenticated request to CivitAI.
-/// Cache TTL is 7 days; stale or missing entries are refreshed transparently.
-#[cfg(feature = "desktop")]
-#[tauri::command]
-pub async fn fetch_cached_image(
-    state: State<'_, Arc<AppState>>,
-    url: String,
+pub(crate) async fn fetch_cached_image_data_url(
+    state: &AppState,
+    url: &str,
 ) -> Result<String, AppError> {
     use base64::{engine::general_purpose::STANDARD, Engine};
 
@@ -4141,43 +4136,30 @@ pub async fn fetch_cached_image(
         }
     }
 
-    // Cache miss — fetch through the backend so auth headers are applied.
-    let civitai_api_key = {
-        let config = state.config.read().await;
-        config.civitai_api_key.clone()
-    };
-
-    let mut req = state
-        .http_client
-        .get(&url)
-        .header("User-Agent", "MooshieUI/0.5.7");
-    if let Some(key) = civitai_api_key.filter(|v| !v.trim().is_empty()) {
-        req = req.bearer_auth(key);
-    }
-
-    let resp = req
-        .send()
-        .await
-        .map_err(|e| AppError::Other(format!("Image fetch failed: {}", e)))?;
-
-    if !resp.status().is_success() {
-        return Err(AppError::Other(format!(
-            "Image fetch returned HTTP {}",
-            resp.status()
-        )));
-    }
-
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| AppError::Other(format!("Failed to read image bytes: {}", e)))?
-        .to_vec();
+    // Cache miss — fetch through the same validated CivitAI path used for
+    // model sidecar thumbnails so this command cannot become an SSRF primitive.
+    let bytes = fetch_civitai_image_bytes(state, url).await?;
 
     // Persist to disk cache (best-effort; ignore write errors).
     let _ = std::fs::write(&cache_path, &bytes);
 
     let mime = detect_image_mime(&bytes);
     Ok(format!("data:{};base64,{}", mime, STANDARD.encode(&bytes)))
+}
+
+/// Fetch a remote image URL through the Rust backend (with CivitAI auth headers if
+/// configured), caching the raw bytes to `{app_data_dir}/image_cache/{url_sha256}`.
+///
+/// Returns the image as a `"data:<mime>;base64,..."` string so the WebView can
+/// display it without making its own unauthenticated request to CivitAI.
+/// Cache TTL is 7 days; stale or missing entries are refreshed transparently.
+#[cfg(feature = "desktop")]
+#[tauri::command]
+pub async fn fetch_cached_image(
+    state: State<'_, Arc<AppState>>,
+    url: String,
+) -> Result<String, AppError> {
+    fetch_cached_image_data_url(state.inner(), &url).await
 }
 
 /// Read an image from the native clipboard and return PNG bytes.
