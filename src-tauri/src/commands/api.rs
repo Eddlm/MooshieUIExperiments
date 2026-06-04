@@ -4096,23 +4096,29 @@ fn detect_image_mime(bytes: &[u8]) -> &'static str {
     }
 }
 
+fn image_bytes_to_data_url(bytes: &[u8]) -> String {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+
+    let mime = detect_image_mime(bytes);
+    format!("data:{};base64,{}", mime, STANDARD.encode(bytes))
+}
+
 /// Fetch a remote image URL through the Rust backend (with CivitAI auth headers if
 /// configured), caching the raw bytes to `{app_data_dir}/image_cache/{url_sha256}`.
 ///
 /// Returns the image as a `"data:<mime>;base64,..."` string so the WebView can
 /// display it without making its own unauthenticated request to CivitAI.
 /// Cache TTL is 7 days; stale or missing entries are refreshed transparently.
-#[cfg(feature = "desktop")]
-#[tauri::command]
-pub async fn fetch_cached_image(
-    state: State<'_, Arc<AppState>>,
-    url: String,
+pub(crate) async fn fetch_cached_image_inner(
+    state: &AppState,
+    url: &str,
 ) -> Result<String, AppError> {
-    use base64::{engine::general_purpose::STANDARD, Engine};
+    let parsed = parse_civitai_image_url(url)?;
+    let cache_key = parsed.as_str();
 
     // Build a stable cache filename from the URL hash.
     let mut hasher = sha2::Sha256::new();
-    sha2::Digest::update(&mut hasher, url.as_bytes());
+    sha2::Digest::update(&mut hasher, cache_key.as_bytes());
     let hash = format!("{:x}", hasher.finalize());
 
     let cache_dir = crate::config::app_data_dir()
@@ -4134,50 +4140,28 @@ pub async fn fetch_cached_image(
         {
             if let Ok(bytes) = std::fs::read(&cache_path) {
                 if !bytes.is_empty() {
-                    let mime = detect_image_mime(&bytes);
-                    return Ok(format!("data:{};base64,{}", mime, STANDARD.encode(&bytes)));
+                    return Ok(image_bytes_to_data_url(&bytes));
                 }
             }
         }
     }
 
     // Cache miss — fetch through the backend so auth headers are applied.
-    let civitai_api_key = {
-        let config = state.config.read().await;
-        config.civitai_api_key.clone()
-    };
-
-    let mut req = state
-        .http_client
-        .get(&url)
-        .header("User-Agent", "MooshieUI/0.5.7");
-    if let Some(key) = civitai_api_key.filter(|v| !v.trim().is_empty()) {
-        req = req.bearer_auth(key);
-    }
-
-    let resp = req
-        .send()
-        .await
-        .map_err(|e| AppError::Other(format!("Image fetch failed: {}", e)))?;
-
-    if !resp.status().is_success() {
-        return Err(AppError::Other(format!(
-            "Image fetch returned HTTP {}",
-            resp.status()
-        )));
-    }
-
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| AppError::Other(format!("Failed to read image bytes: {}", e)))?
-        .to_vec();
+    let bytes = fetch_civitai_image_bytes(state, parsed.as_str()).await?;
 
     // Persist to disk cache (best-effort; ignore write errors).
     let _ = std::fs::write(&cache_path, &bytes);
 
-    let mime = detect_image_mime(&bytes);
-    Ok(format!("data:{};base64,{}", mime, STANDARD.encode(&bytes)))
+    Ok(image_bytes_to_data_url(&bytes))
+}
+
+#[cfg(feature = "desktop")]
+#[tauri::command]
+pub async fn fetch_cached_image(
+    state: State<'_, Arc<AppState>>,
+    url: String,
+) -> Result<String, AppError> {
+    fetch_cached_image_inner(state.inner(), &url).await
 }
 
 /// Read an image from the native clipboard and return PNG bytes.

@@ -3689,16 +3689,10 @@ async fn dispatch_command(
         }
         "fetch_cached_image" => {
             let url = args["url"].as_str().ok_or("Missing url")?.to_string();
-            let resp = state
-                .http_client
-                .get(&url)
-                .send()
+            let data_url = commands::api::fetch_cached_image_inner(state.as_ref(), &url)
                 .await
                 .map_err(|e| e.to_string())?;
-            let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
-            use base64::{engine::general_purpose::STANDARD, Engine};
-            let b64 = STANDARD.encode(&bytes);
-            Ok(serde_json::json!(b64))
+            Ok(serde_json::json!(data_url))
         }
 
         // --- ComfyUI node checks ---
