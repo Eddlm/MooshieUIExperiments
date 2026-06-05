@@ -3762,7 +3762,7 @@ async fn dispatch_command(
                 .build()
                 .map_err(|e| e.to_string())?;
             let mut current = parse_cached_image_url(&url)?;
-            let civitai_api_key = state.app.config.read().await.civitai_api_key.clone();
+            let civitai_api_key = state.config.read().await.civitai_api_key.clone();
 
             let mut final_resp = None;
             for _ in 0..5 {
