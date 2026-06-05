@@ -215,6 +215,74 @@ fn forbidden_response(msg: &str) -> Response {
         .into_response()
 }
 
+fn is_allowed_cached_image_host(host: &str) -> bool {
+    matches!(
+        host.to_ascii_lowercase().as_str(),
+        "civitai.com" | "www.civitai.com" | "image.civitai.com" | "cdn.civitai.com"
+    )
+}
+
+fn parse_cached_image_url(url: &str) -> Result<reqwest::Url, String> {
+    let parsed =
+        reqwest::Url::parse(url.trim()).map_err(|e| format!("Invalid CivitAI image URL: {}", e))?;
+    if parsed.scheme() != "https" {
+        return Err("CivitAI image URL must use HTTPS".into());
+    }
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "CivitAI image URL is missing a host".to_string())?;
+    if !is_allowed_cached_image_host(host) {
+        return Err("Only CivitAI image URLs can be fetched through this endpoint".into());
+    }
+    Ok(parsed)
+}
+
+fn detect_cached_image_mime(bytes: &[u8]) -> &'static str {
+    if bytes.starts_with(b"\x89PNG") {
+        "image/png"
+    } else if bytes.starts_with(b"\xff\xd8") {
+        "image/jpeg"
+    } else if bytes.starts_with(b"GIF") {
+        "image/gif"
+    } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        "image/webp"
+    } else {
+        "image/jpeg"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cached_image_url_allows_civitai_image_hosts() {
+        assert!(parse_cached_image_url("https://image.civitai.com/example.jpeg").is_ok());
+        assert!(parse_cached_image_url("https://cdn.civitai.com/example.png").is_ok());
+        assert!(parse_cached_image_url("https://civitai.com/images/123").is_ok());
+        assert!(parse_cached_image_url("https://www.civitai.com/images/123").is_ok());
+    }
+
+    #[test]
+    fn cached_image_url_rejects_non_civitai_and_non_https_targets() {
+        assert!(parse_cached_image_url("http://image.civitai.com/example.jpeg").is_err());
+        assert!(parse_cached_image_url("http://127.0.0.1:8188/view").is_err());
+        assert!(parse_cached_image_url("https://169.254.169.254/latest/meta-data").is_err());
+        assert!(parse_cached_image_url("https://civitai.com.evil.test/example.png").is_err());
+    }
+
+    #[test]
+    fn cached_image_mime_detection_matches_data_url_contract() {
+        assert_eq!(detect_cached_image_mime(b"\x89PNG\r\n\x1a\n"), "image/png");
+        assert_eq!(detect_cached_image_mime(b"\xff\xd8\xff\xe0"), "image/jpeg");
+        assert_eq!(detect_cached_image_mime(b"GIF89a"), "image/gif");
+        assert_eq!(
+            detect_cached_image_mime(b"RIFF\x00\x00\x00\x00WEBP"),
+            "image/webp"
+        );
+    }
+}
+
 /// Start the embedded web server.
 ///
 /// Attempts to bind to `port`; if that port is already in use, tries the
@@ -3689,16 +3757,53 @@ async fn dispatch_command(
         }
         "fetch_cached_image" => {
             let url = args["url"].as_str().ok_or("Missing url")?.to_string();
-            let resp = state
-                .http_client
-                .get(&url)
-                .send()
-                .await
+            let client = reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
                 .map_err(|e| e.to_string())?;
+            let mut current = parse_cached_image_url(&url)?;
+            let civitai_api_key = state.app.config.read().await.civitai_api_key.clone();
+
+            let mut final_resp = None;
+            for _ in 0..5 {
+                let mut req = client
+                    .get(current.clone())
+                    .header("User-Agent", "MooshieUI/0.5.7");
+                if let Some(key) = civitai_api_key.as_ref().filter(|v| !v.trim().is_empty()) {
+                    req = req.bearer_auth(key);
+                }
+
+                let resp = req.send().await.map_err(|e| e.to_string())?;
+                if resp.status().is_redirection() {
+                    let location = resp
+                        .headers()
+                        .get(reqwest::header::LOCATION)
+                        .and_then(|h| h.to_str().ok())
+                        .ok_or_else(|| {
+                            "Image fetch redirect missing Location header".to_string()
+                        })?;
+                    current = current
+                        .join(location)
+                        .map_err(|e| format!("Image fetch redirect invalid: {}", e))?;
+                    parse_cached_image_url(current.as_str())?;
+                    continue;
+                }
+                final_resp = Some(resp);
+                break;
+            }
+            let resp =
+                final_resp.ok_or_else(|| "Image fetch redirected too many times".to_string())?;
+            if !resp.status().is_success() {
+                return Err(format!("Image fetch returned HTTP {}", resp.status()));
+            }
             let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
             use base64::{engine::general_purpose::STANDARD, Engine};
-            let b64 = STANDARD.encode(&bytes);
-            Ok(serde_json::json!(b64))
+            let mime = detect_cached_image_mime(&bytes);
+            Ok(serde_json::json!(format!(
+                "data:{};base64,{}",
+                mime,
+                STANDARD.encode(&bytes)
+            )))
         }
 
         // --- ComfyUI node checks ---
