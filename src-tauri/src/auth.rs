@@ -386,12 +386,14 @@ impl AuthState {
             .find(|a| a.username.eq_ignore_ascii_case(&username))
             .ok_or_else(|| "Invalid username or password".to_string())?;
 
-        if !is_legacy_sha256(&account.password_hash) {
-            return Ok(false);
+        if !verify_password(password, &account.password_hash) {
+            return Err("Invalid username or password".to_string());
         }
 
-        if !verify_password(password, &account.password_hash) {
-            return Err("Current password is incorrect".to_string());
+        if !is_legacy_sha256(&account.password_hash) {
+            drop(db);
+            self.clear_login_attempts(&username);
+            return Ok(false);
         }
 
         account.password_hash = hash_password(password);
@@ -907,4 +909,54 @@ fn save_sessions(sessions: &HashMap<String, SessionEntry>) -> Result<(), String>
     std::fs::write(&path, json).map_err(|e| e.to_string())?;
     restrict_private_file_permissions(&path);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_account(username: &str, password_hash: String) -> Account {
+        Account {
+            username: username.to_string(),
+            password_hash,
+            must_change_password: false,
+            role: "user".to_string(),
+            created_at: Utc::now().to_rfc3339(),
+            last_online: None,
+            storage_limit_bytes: DEFAULT_STORAGE_LIMIT,
+            can_use_modelhub: false,
+        }
+    }
+
+    fn auth_with_accounts(accounts: Vec<Account>) -> AuthState {
+        AuthState {
+            db: RwLock::new(AuthDatabase {
+                accounts,
+                legacy_password_grace_deadline: None,
+                legacy_password_announcement_sent: false,
+            }),
+            sessions: RwLock::new(HashMap::new()),
+            last_activity: RwLock::new(HashMap::new()),
+            login_attempts: RwLock::new(HashMap::new()),
+        }
+    }
+
+    #[test]
+    fn password_upgrade_checks_password_before_hash_format() {
+        let auth = auth_with_accounts(vec![test_account("alice", hash_password("correct"))]);
+
+        let missing = auth
+            .upgrade_password_encryption("missing", "wrong")
+            .unwrap_err();
+        let wrong_password = auth
+            .upgrade_password_encryption("alice", "wrong")
+            .unwrap_err();
+        assert_eq!(missing, "Invalid username or password");
+        assert_eq!(wrong_password, "Invalid username or password");
+
+        let already_modern = auth
+            .upgrade_password_encryption("alice", "correct")
+            .expect("correct password should be accepted");
+        assert!(!already_modern);
+    }
 }

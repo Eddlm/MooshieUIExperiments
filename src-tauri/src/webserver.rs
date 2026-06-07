@@ -230,6 +230,71 @@ fn require_remote_lan_auth(
     None
 }
 
+fn query_token(query: &str) -> Option<&str> {
+    query
+        .split('&')
+        .find_map(|part| part.strip_prefix("token="))
+        .filter(|token| !token.is_empty())
+}
+
+fn username_for_token(state: &WebState, token: &str) -> Option<Option<String>> {
+    state.auth.validate_token(token).map(|username| {
+        // Admin accounts share the host gallery root, matching bearer-token requests.
+        if state.auth.get_account_role(&username).as_deref() == Some("admin") {
+            None
+        } else {
+            Some(username)
+        }
+    })
+}
+
+fn resolve_media_username(
+    state: &WebState,
+    headers: &HeaderMap,
+    remote: &SocketAddr,
+    query: &str,
+) -> Result<Option<String>, ()> {
+    if is_localhost(remote) || !state.lan_enabled {
+        return Ok(None);
+    }
+
+    if resolve_role(state, headers, remote) != UserRole::Anonymous {
+        return Ok(resolve_username(state, headers, remote));
+    }
+
+    if let Some(username) = query_token(query).and_then(|token| username_for_token(state, token)) {
+        return Ok(username);
+    }
+
+    Err(())
+}
+
+fn query_authenticated(
+    state: &WebState,
+    headers: &HeaderMap,
+    remote: &SocketAddr,
+    query: &str,
+) -> bool {
+    if is_localhost(remote) || !state.lan_enabled {
+        return true;
+    }
+    if resolve_role(state, headers, remote) != UserRole::Anonymous {
+        return true;
+    }
+    query_token(query)
+        .and_then(|token| state.auth.validate_token(token))
+        .is_some()
+}
+
+fn is_gallery_image_filename(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    lower.ends_with(".png")
+        || lower.ends_with(".jpg")
+        || lower.ends_with(".jpeg")
+        || lower.ends_with(".webp")
+        || lower.ends_with(".jxl")
+}
+
 async fn resolve_tls_config(
     state: &Arc<AppState>,
 ) -> Option<axum_server::tls_rustls::RustlsConfig> {
@@ -1267,20 +1332,34 @@ async fn heartbeat_handler(AxumState(state): AxumState<SharedState>) -> StatusCo
 }
 
 /// Heartbeat stop — browser sends this via sendBeacon on page unload.
-async fn heartbeat_stop_handler(AxumState(state): AxumState<SharedState>) -> StatusCode {
+async fn heartbeat_stop_handler(
+    AxumState(state): AxumState<SharedState>,
+    ConnectInfo(remote): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    req: axum::extract::Request,
+) -> Response {
+    let query = req.uri().query().unwrap_or("");
+    if !query_authenticated(&state, &headers, &remote, query) {
+        return unauthorized_response("Authentication required");
+    }
+
     // If we've already switched to app mode, ignore the stop signal.
     if state
         .app
         .app_mode_active
         .load(std::sync::atomic::Ordering::SeqCst)
     {
-        return StatusCode::OK;
+        return StatusCode::OK.into_response();
     }
     // Cancel any in-progress generation. Do not backdate last_heartbeat: sendBeacon
     // also fires on refresh/navigation, which would kill browser mode before the
     // new page can post its first heartbeat. The 120s watchdog handles real tab close.
-    let _ = state.app.gpu_manager.interrupt(None).await;
-    StatusCode::OK
+    let username = match resolve_media_username(&state, &headers, &remote, query) {
+        Ok(username) => username,
+        Err(()) => return unauthorized_response("Authentication required"),
+    };
+    let _ = state.app.interrupt_user_prompts(username.as_deref()).await;
+    StatusCode::OK.into_response()
 }
 
 /// Gallery thumbnail endpoint.
@@ -1308,19 +1387,10 @@ async fn thumbnail_handler(
         .and_then(|s| s.parse().ok())
         .unwrap_or(256);
 
-    // Try auth from headers first, then from ?token= query param (for <img> tags)
-    let username = {
-        let from_headers = resolve_username(&state, &headers, &remote);
-        if from_headers.is_some() {
-            from_headers
-        } else if !is_localhost(&remote) && state.lan_enabled {
-            query
-                .split('&')
-                .find_map(|p| p.strip_prefix("token="))
-                .and_then(|t| state.auth.validate_token(t))
-        } else {
-            None
-        }
+    // Try auth from headers first, then from ?token= query param (for <img> tags).
+    let username = match resolve_media_username(&state, &headers, &remote, query) {
+        Ok(username) => username,
+        Err(()) => return unauthorized_response("Authentication required"),
     };
     let gallery_dir = match user_gallery_dir(username.as_deref()) {
         Some(d) => d,
@@ -1362,19 +1432,10 @@ async fn gallery_image_handler(
 
     let query = req.uri().query().unwrap_or("");
 
-    // Auth: try headers first, then ?token= query param
-    let username = {
-        let from_headers = resolve_username(&state, &headers, &remote);
-        if from_headers.is_some() {
-            from_headers
-        } else if !is_localhost(&remote) && state.lan_enabled {
-            query
-                .split('&')
-                .find_map(|p| p.strip_prefix("token="))
-                .and_then(|t| state.auth.validate_token(t))
-        } else {
-            None
-        }
+    // Auth: try headers first, then ?token= query param.
+    let username = match resolve_media_username(&state, &headers, &remote, query) {
+        Ok(username) => username,
+        Err(()) => return unauthorized_response("Authentication required"),
     };
     let gallery_dir = match user_gallery_dir(username.as_deref()) {
         Some(d) => d,
@@ -1463,23 +1524,8 @@ async fn temp_image_handler(
     headers: HeaderMap,
     req: axum::extract::Request,
 ) -> Response {
-    // Auth check (same as thumbnail handler)
     let query = req.uri().query().unwrap_or("");
-    let username = {
-        let from_headers = resolve_username(&state, &headers, &remote);
-        if from_headers.is_some() {
-            from_headers
-        } else if !is_localhost(&remote) && state.lan_enabled {
-            query
-                .split('&')
-                .find_map(|p| p.strip_prefix("token="))
-                .and_then(|t| state.auth.validate_token(t))
-        } else {
-            None
-        }
-    };
-    let role = resolve_role(&state, &headers, &remote);
-    if role == UserRole::Anonymous && username.is_none() && !is_localhost(&remote) {
+    if resolve_media_username(&state, &headers, &remote, query).is_err() {
         return unauthorized_response("Authentication required");
     }
 
@@ -2293,11 +2339,7 @@ async fn dispatch_command(
                         return None;
                     }
                     let name = entry.file_name().to_string_lossy().into_owned();
-                    if name.ends_with(".png")
-                        || name.ends_with(".jpg")
-                        || name.ends_with(".jpeg")
-                        || name.ends_with(".webp")
-                    {
+                    if is_gallery_image_filename(&name) {
                         Some((entry.metadata().ok()?.modified().ok()?, name))
                     } else {
                         None
@@ -2323,11 +2365,7 @@ async fn dispatch_command(
                         return None;
                     }
                     let name = entry.file_name().to_string_lossy().into_owned();
-                    if !(name.ends_with(".png")
-                        || name.ends_with(".jpg")
-                        || name.ends_with(".jpeg")
-                        || name.ends_with(".webp"))
-                    {
+                    if !is_gallery_image_filename(&name) {
                         return None;
                     }
                     let metadata = entry.metadata().ok()?;
@@ -2914,20 +2952,20 @@ async fn dispatch_command(
             let dir = user_gallery_dir(username).ok_or("Cannot find gallery directory")?;
             let path = dir.join(&filename);
             let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
-            let result = crate::metadata::read_png_metadata(&bytes).map_err(|e| e.to_string())?;
+            let result = crate::metadata::read_image_metadata(&bytes).map_err(|e| e.to_string())?;
             serde_json::to_value(result).map_err(|e| e.to_string())
         }
         "read_image_metadata_bytes" => {
             let image_bytes: Vec<u8> = serde_json::from_value(args["imageBytes"].clone())
                 .map_err(|e| format!("Invalid imageBytes: {}", e))?;
             let result =
-                crate::metadata::read_png_metadata(&image_bytes).map_err(|e| e.to_string())?;
+                crate::metadata::read_image_metadata(&image_bytes).map_err(|e| e.to_string())?;
             serde_json::to_value(result).map_err(|e| e.to_string())
         }
         "read_image_metadata_path" => {
             let path = args["path"].as_str().ok_or("Missing path")?.to_string();
             let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
-            let result = crate::metadata::read_png_metadata(&bytes).map_err(|e| e.to_string())?;
+            let result = crate::metadata::read_image_metadata(&bytes).map_err(|e| e.to_string())?;
             serde_json::to_value(result).map_err(|e| e.to_string())
         }
         "embed_png_metadata_bytes" => {
@@ -4737,9 +4775,15 @@ async fn auth_set_role_handler(
                 .into_response();
         }
     };
-    // Moderators cannot promote to admin — only admins can do that
-    if new_role == "admin" && role != UserRole::Admin {
-        return forbidden_response("Only admins can promote accounts to admin.");
+    if role == UserRole::Moderator {
+        if let Some(target_role) = state.auth.get_account_role(username) {
+            if target_role == "admin" || target_role == "moderator" {
+                return forbidden_response("Moderators can only manage regular user accounts.");
+            }
+        }
+        if new_role == "admin" || new_role == "moderator" {
+            return forbidden_response("Only admins can grant elevated roles.");
+        }
     }
     match state.auth.set_account_role(username, new_role) {
         Ok(()) => (StatusCode::OK, Json(serde_json::json!({ "ok": true }))).into_response(),
@@ -5087,11 +5131,7 @@ async fn storage_info_handler(
                     continue;
                 }
                 let name = entry.file_name().to_string_lossy().into_owned();
-                if !(name.ends_with(".png")
-                    || name.ends_with(".jpg")
-                    || name.ends_with(".jpeg")
-                    || name.ends_with(".webp"))
-                {
+                if !is_gallery_image_filename(&name) {
                     continue;
                 }
                 if let Ok(meta) = entry.metadata() {
@@ -5222,11 +5262,7 @@ fn cleanup_expired_images(auth: &AuthState) {
                 continue;
             }
             let name = file_entry.file_name().to_string_lossy().into_owned();
-            if !(name.ends_with(".png")
-                || name.ends_with(".jpg")
-                || name.ends_with(".jpeg")
-                || name.ends_with(".webp"))
-            {
+            if !is_gallery_image_filename(&name) {
                 continue;
             }
             if let Ok(meta) = file_entry.metadata() {
