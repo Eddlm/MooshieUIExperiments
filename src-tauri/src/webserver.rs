@@ -149,6 +149,46 @@ fn resolve_username(state: &WebState, headers: &HeaderMap, remote: &SocketAddr) 
     None
 }
 
+fn query_param<'a>(query: &'a str, name: &str) -> Option<&'a str> {
+    let prefix = format!("{}=", name);
+    query.split('&').find_map(|p| p.strip_prefix(&prefix))
+}
+
+fn username_for_token(state: &WebState, token: &str) -> Option<Option<String>> {
+    let username = state.auth.validate_token(token)?;
+    if state.auth.get_account_role(&username).as_deref() == Some("admin") {
+        Some(None)
+    } else {
+        Some(Some(username))
+    }
+}
+
+/// Resolve a LAN gallery/temp-image user from either Authorization or ?token=.
+/// Missing or invalid remote LAN credentials must fail closed; `None` is only
+/// valid for localhost/non-LAN mode or an authenticated admin account.
+fn resolve_username_with_query_token(
+    state: &WebState,
+    headers: &HeaderMap,
+    remote: &SocketAddr,
+    query: &str,
+) -> Option<Option<String>> {
+    if !state.lan_enabled || is_localhost(remote) {
+        return Some(None);
+    }
+
+    if resolve_role(state, headers, remote) != UserRole::Anonymous {
+        return Some(resolve_username(state, headers, remote));
+    }
+
+    if let Some(token) = query_param(query, "token") {
+        if let Some(username) = username_for_token(state, token) {
+            return Some(username);
+        }
+    }
+
+    None
+}
+
 /// Commands that moderators (and admins) can execute.
 /// Moderators have full operational access; filesystem/server panels are
 /// hidden in the UI for mods but all commands are permitted at the API level.
@@ -1267,20 +1307,35 @@ async fn heartbeat_handler(AxumState(state): AxumState<SharedState>) -> StatusCo
 }
 
 /// Heartbeat stop — browser sends this via sendBeacon on page unload.
-async fn heartbeat_stop_handler(AxumState(state): AxumState<SharedState>) -> StatusCode {
+async fn heartbeat_stop_handler(
+    AxumState(state): AxumState<SharedState>,
+    ConnectInfo(remote): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    req: axum::extract::Request,
+) -> Response {
+    let query = req.uri().query().unwrap_or("");
+    let username = match resolve_username_with_query_token(&state, &headers, &remote, query) {
+        Some(username) => username,
+        None => return unauthorized_response("Authentication required"),
+    };
+
     // If we've already switched to app mode, ignore the stop signal.
     if state
         .app
         .app_mode_active
         .load(std::sync::atomic::Ordering::SeqCst)
     {
-        return StatusCode::OK;
+        return StatusCode::OK.into_response();
     }
-    // Cancel any in-progress generation. Do not backdate last_heartbeat: sendBeacon
-    // also fires on refresh/navigation, which would kill browser mode before the
-    // new page can post its first heartbeat. The 120s watchdog handles real tab close.
-    let _ = state.app.gpu_manager.interrupt(None).await;
-    StatusCode::OK
+
+    // Cancel in-progress generation. Remote LAN users must only stop their own
+    // prompts; localhost keeps the legacy browser-mode "stop everything" behavior.
+    if state.lan_enabled && !is_localhost(&remote) {
+        let _ = state.app.interrupt_user_prompts(username.as_deref()).await;
+    } else {
+        let _ = state.app.gpu_manager.interrupt(None).await;
+    }
+    StatusCode::OK.into_response()
 }
 
 /// Gallery thumbnail endpoint.
@@ -1308,19 +1363,10 @@ async fn thumbnail_handler(
         .and_then(|s| s.parse().ok())
         .unwrap_or(256);
 
-    // Try auth from headers first, then from ?token= query param (for <img> tags)
-    let username = {
-        let from_headers = resolve_username(&state, &headers, &remote);
-        if from_headers.is_some() {
-            from_headers
-        } else if !is_localhost(&remote) && state.lan_enabled {
-            query
-                .split('&')
-                .find_map(|p| p.strip_prefix("token="))
-                .and_then(|t| state.auth.validate_token(t))
-        } else {
-            None
-        }
+    // Try auth from headers first, then from ?token= query param (for <img> tags).
+    let username = match resolve_username_with_query_token(&state, &headers, &remote, query) {
+        Some(username) => username,
+        None => return unauthorized_response("Authentication required"),
     };
     let gallery_dir = match user_gallery_dir(username.as_deref()) {
         Some(d) => d,
@@ -1362,19 +1408,10 @@ async fn gallery_image_handler(
 
     let query = req.uri().query().unwrap_or("");
 
-    // Auth: try headers first, then ?token= query param
-    let username = {
-        let from_headers = resolve_username(&state, &headers, &remote);
-        if from_headers.is_some() {
-            from_headers
-        } else if !is_localhost(&remote) && state.lan_enabled {
-            query
-                .split('&')
-                .find_map(|p| p.strip_prefix("token="))
-                .and_then(|t| state.auth.validate_token(t))
-        } else {
-            None
-        }
+    // Auth: try headers first, then ?token= query param.
+    let username = match resolve_username_with_query_token(&state, &headers, &remote, query) {
+        Some(username) => username,
+        None => return unauthorized_response("Authentication required"),
     };
     let gallery_dir = match user_gallery_dir(username.as_deref()) {
         Some(d) => d,
@@ -1465,21 +1502,7 @@ async fn temp_image_handler(
 ) -> Response {
     // Auth check (same as thumbnail handler)
     let query = req.uri().query().unwrap_or("");
-    let username = {
-        let from_headers = resolve_username(&state, &headers, &remote);
-        if from_headers.is_some() {
-            from_headers
-        } else if !is_localhost(&remote) && state.lan_enabled {
-            query
-                .split('&')
-                .find_map(|p| p.strip_prefix("token="))
-                .and_then(|t| state.auth.validate_token(t))
-        } else {
-            None
-        }
-    };
-    let role = resolve_role(&state, &headers, &remote);
-    if role == UserRole::Anonymous && username.is_none() && !is_localhost(&remote) {
+    if resolve_username_with_query_token(&state, &headers, &remote, query).is_none() {
         return unauthorized_response("Authentication required");
     }
 
@@ -1813,6 +1836,19 @@ async fn command_handler(
 ///
 /// `username` is `Some("bob")` for authenticated LAN users, `None` for admin/localhost.
 /// Gallery commands use this to isolate per-user image storage.
+fn ensure_prompt_owned(
+    state: &AppState,
+    prompt_id: &str,
+    username: Option<&str>,
+) -> Result<(), String> {
+    let caller = username.map(str::to_string);
+    if state.prompt_queue.is_owned_by(prompt_id, &caller) {
+        Ok(())
+    } else {
+        Err("Prompt does not belong to the current user".to_string())
+    }
+}
+
 async fn dispatch_command(
     state: Arc<AppState>,
     auth: &Arc<AuthState>,
@@ -2087,6 +2123,34 @@ async fn dispatch_command(
             };
             resolve(&mut running);
             resolve(&mut pending);
+
+            // Regular LAN users must not see other users' prompt ids from the
+            // shared ComfyUI queue. Admins/moderators keep the global view.
+            let caller = username.map(str::to_string);
+            let is_privileged = match username {
+                None => true,
+                Some(u) => matches!(
+                    auth.get_account_role(u).as_deref(),
+                    Some("admin") | Some("moderator")
+                ),
+            };
+            if !is_privileged {
+                running.retain(|entry| {
+                    entry
+                        .as_array()
+                        .and_then(|a| a.get(1))
+                        .and_then(|v| v.as_str())
+                        .is_some_and(|pid| state.prompt_queue.is_owned_by(pid, &caller))
+                });
+                pending.retain(|entry| {
+                    entry
+                        .as_array()
+                        .and_then(|a| a.get(1))
+                        .and_then(|v| v.as_str())
+                        .is_some_and(|pid| state.prompt_queue.is_owned_by(pid, &caller))
+                });
+            }
+
             // Include tracked placeholders that haven't been submitted to a
             // ComfyUI worker yet (background submission in flight, or held in
             // the fair queue). Without this, the frontend reconciler falsely
@@ -2104,7 +2168,12 @@ async fn dispatch_command(
                 .collect();
             let tracked: Vec<String> = {
                 let q = state.prompt_queue.queue.read().unwrap();
-                q.iter().map(|(pid, _)| pid.clone()).collect()
+                q.iter()
+                    .filter(|(pid, _)| {
+                        is_privileged || state.prompt_queue.is_owned_by(pid, &caller)
+                    })
+                    .map(|(pid, _)| pid.clone())
+                    .collect()
             };
             const SUBMISSION_SHIELD_SECS: u64 = 120;
             for pid in tracked {
@@ -2126,15 +2195,6 @@ async fn dispatch_command(
                 }
             }
 
-            // Check if caller is privileged (admin or moderator) — can see usernames.
-            // username=None means localhost (always admin).
-            let is_privileged = match username {
-                None => true,
-                Some(u) => matches!(
-                    auth.get_account_role(u).as_deref(),
-                    Some("admin") | Some("moderator")
-                ),
-            };
             // Build ordered queue positions from our internal fair-queue tracker.
             // This is separate from ComfyUI's queue and reflects round-robin ordering.
             let queue_positions: Vec<serde_json::Value> = {
@@ -2142,6 +2202,9 @@ async fn dispatch_command(
                 queue
                     .iter()
                     .enumerate()
+                    .filter(|(_, (id, _))| {
+                        is_privileged || state.prompt_queue.is_owned_by(id, &caller)
+                    })
                     .map(|(pos, (id, owner))| {
                         if is_privileged {
                             serde_json::json!({
@@ -2166,6 +2229,7 @@ async fn dispatch_command(
         }
         "get_history" => {
             let prompt_id = args["promptId"].as_str().ok_or("Missing promptId")?;
+            ensure_prompt_owned(&state, prompt_id, username)?;
             let result = state
                 .get_history_for(prompt_id)
                 .await
@@ -2179,6 +2243,7 @@ async fn dispatch_command(
             // broadcast — so even if the SSE client missed the event, the image
             // temp file was already saved.
             let prompt_id = args["promptId"].as_str().ok_or("Missing promptId")?;
+            ensure_prompt_owned(&state, prompt_id, username)?;
             let ids = state.prompt_queue.related_ids(prompt_id);
             let mut cached = Vec::new();
             {
@@ -2204,10 +2269,7 @@ async fn dispatch_command(
         }
         "interrupt_generation" => {
             if let Some(prompt_id) = args["promptId"].as_str() {
-                let caller = username.map(str::to_string);
-                if !state.prompt_queue.is_owned_by(prompt_id, &caller) {
-                    return Err("Prompt does not belong to the current user".to_string());
-                }
+                ensure_prompt_owned(&state, prompt_id, username)?;
                 state
                     .interrupt_prompt(Some(prompt_id))
                     .await
@@ -2664,6 +2726,7 @@ async fn dispatch_command(
         }
         "delete_queue_item" => {
             let prompt_id = args["promptId"].as_str().ok_or("Missing promptId")?;
+            ensure_prompt_owned(&state, prompt_id, username)?;
             state
                 .delete_queue_items(vec![prompt_id.to_string()])
                 .await
@@ -4737,9 +4800,15 @@ async fn auth_set_role_handler(
                 .into_response();
         }
     };
-    // Moderators cannot promote to admin — only admins can do that
-    if new_role == "admin" && role != UserRole::Admin {
-        return forbidden_response("Only admins can promote accounts to admin.");
+    if role == UserRole::Moderator {
+        if let Some(target_role) = state.auth.get_account_role(username) {
+            if target_role == "admin" || target_role == "moderator" {
+                return forbidden_response("Moderators can only manage regular user accounts.");
+            }
+        }
+        if new_role == "admin" {
+            return forbidden_response("Only admins can promote accounts to admin.");
+        }
     }
     match state.auth.set_account_role(username, new_role) {
         Ok(()) => (StatusCode::OK, Json(serde_json::json!({ "ok": true }))).into_response(),
