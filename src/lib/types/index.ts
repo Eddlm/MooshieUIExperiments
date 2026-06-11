@@ -109,8 +109,8 @@ export interface GenerationParams {
   clip_type: string | null;
   controlnet: ControlNetPayload | null;
   model_architecture: string;
-  /** Inject ModelSamplingDiscrete (v_prediction + zsnr) before KSampler. */
-  needs_vpred_zsnr_sampling?: boolean;
+  is_sdxl_like?: boolean;
+  is_vpred_model?: boolean;
   output_bit_depth: string;
   /** Storage format for this generation: "png" (default) or "jxl". */
   output_format: string;

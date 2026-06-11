@@ -462,7 +462,7 @@ const en: Record<string, string> = {
   "generation.prompts.positive_tip": "Describe what you want to see in the image. Use commas to separate concepts. Quality tags are added automatically — focus on subject, style, and lighting.",
   "generation.prompts.negative": "Negative Prompt",
   "generation.prompts.negative_tip": "Describe what you don't want in the image (e.g. text, watermark, extra fingers). Quality negatives are added automatically.",
-  "generation.prompts.negative_flux_disabled": "ignored by Flux models",
+  "generation.prompts.negative_disabled_for_model": "ignored by this model",
   "generation.prompts.positive_placeholder": "A beautiful landscape, golden hour lighting, ...",
   "generation.prompts.positive_placeholder_anima": "1girl, long hair, @artist_name, ...",
   "generation.prompts.negative_placeholder": "text, watermark, extra fingers...",
@@ -621,6 +621,8 @@ const en: Record<string, string> = {
   "generation.model.copy_trigger": "Copy trigger phrase to prompt",
   "generation.model.hash_label": "Hash:",
   "generation.model.copy_hash": "Copy hash to clipboard",
+  "generation.model.architecture_detecting": "Detecting...",
+  "generation.model.architecture_picker_title": "Detected model architecture",
   "generation.model.license_label": "License:",
 
   // Image inputs

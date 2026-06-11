@@ -553,6 +553,8 @@ const ko: Record<string, string> = {
   "generation.model.copy_trigger": "트리거 구문을 프롬프트에 복사",
   "generation.model.hash_label": "해시:",
   "generation.model.copy_hash": "해시를 클립보드에 복사",
+  "generation.model.architecture_detecting": "감지 중...",
+  "generation.model.architecture_picker_title": "감지된 모델 아키텍처",
   "generation.model.license_label": "라이선스:",
 
   "generation.image.title": "이미지 입력",
@@ -1487,7 +1489,7 @@ const ko: Record<string, string> = {
 
 
   // -- Stubs (untranslated -- English fallback) --
-  "generation.prompts.negative_flux_disabled": "ignored by Flux models",
+  "generation.prompts.negative_disabled_for_model": "이 모델에서는 무시됨",
   "generation.sampler.flux_guidance_label": "Flux Guidance",
   "generation.sampler.flux_guidance_tip": "Distilled guidance scale used by Flux Dev / Flux 2 Klein. Replaces CFG (which these models ignore). Sweet spot is 2.5–4. Higher = stronger prompt adherence but less natural images.",
 

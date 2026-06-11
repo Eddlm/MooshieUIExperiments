@@ -567,6 +567,8 @@ const ja: Record<string, string> = {
   "generation.model.copy_trigger": "トリガーフレーズをプロンプトにコピー",
   "generation.model.hash_label": "ハッシュ:",
   "generation.model.copy_hash": "ハッシュをクリップボードにコピー",
+  "generation.model.architecture_detecting": "検出中...",
+  "generation.model.architecture_picker_title": "検出されたモデルアーキテクチャ",
   "generation.model.license_label": "ライセンス:",
 
   // 画像入力
@@ -1512,7 +1514,7 @@ const ja: Record<string, string> = {
 
 
   // -- Stubs (untranslated -- English fallback) --
-  "generation.prompts.negative_flux_disabled": "ignored by Flux models",
+  "generation.prompts.negative_disabled_for_model": "このモデルでは無視されます",
   "generation.sampler.flux_guidance_label": "Flux Guidance",
   "generation.sampler.flux_guidance_tip": "Distilled guidance scale used by Flux Dev / Flux 2 Klein. Replaces CFG (which these models ignore). Sweet spot is 2.5–4. Higher = stronger prompt adherence but less natural images.",
 

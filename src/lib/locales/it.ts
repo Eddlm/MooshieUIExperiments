@@ -553,6 +553,8 @@ const it: Record<string, string> = {
   "generation.model.copy_trigger": "Copia la frase di attivazione nel prompt",
   "generation.model.hash_label": "Hash:",
   "generation.model.copy_hash": "Copia hash negli appunti",
+  "generation.model.architecture_detecting": "Rilevamento...",
+  "generation.model.architecture_picker_title": "Architettura del modello rilevata",
   "generation.model.license_label": "Licenza:",
 
   "generation.image.title": "Input immagine",
@@ -1487,7 +1489,7 @@ const it: Record<string, string> = {
 
 
   // -- Stubs (untranslated -- English fallback) --
-  "generation.prompts.negative_flux_disabled": "ignored by Flux models",
+  "generation.prompts.negative_disabled_for_model": "ignorato da questo modello",
   "generation.sampler.flux_guidance_label": "Flux Guidance",
   "generation.sampler.flux_guidance_tip": "Distilled guidance scale used by Flux Dev / Flux 2 Klein. Replaces CFG (which these models ignore). Sweet spot is 2.5–4. Higher = stronger prompt adherence but less natural images.",
 

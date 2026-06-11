@@ -3,11 +3,13 @@
   import { models } from "../../stores/models.svelte.js";
   import { autocomplete } from "../../stores/autocomplete.svelte.js";
   import { locale } from "../../stores/locale.svelte.js";
-  import { downloadModel, findModelByHash, hashModelFile, readModelSpec, lookupCivitaiBaseModel, type ModelSpec, getComputeCapability } from "../../utils/api.js";
+  import { downloadModel, findModelByHash, hashModelFile, readModelSpec, getComputeCapability, type ModelSpec } from "../../utils/api.js";
   import { ipcListen } from "../../utils/ipc.js";
   import { onMount, onDestroy, tick } from "svelte";
   import InfoTip from "../ui/InfoTip.svelte";
   import { scrollCapture } from "../../utils/scrollCapture.js";
+  import { MODEL_FAMILIES, TURBO_MODEL_VARIANTS } from "../../utils/modelFamily.js";
+  import type { ModelFamily } from "../../utils/modelFamily.js";
 
   interface ModelFile {
     filename: string;
@@ -258,10 +260,34 @@
     },
   ];
 
+  let loadedModelMetadataKey = $state("");
+  let latestModelMetadataRequestId = 0;
+  let isModelMetadataLoading = $state(false);
+  let showArchitecturePicker = $state(false);
+
   let modelSpec = $state<ModelSpec | null>(null);
-  let modelSpecLoading = $state(false);
-  let modelSpecFilename = $state("");
+  let modelSpecUnavailable = $state(false);
   let showModelInfo = $state(false);
+
+  /** Display-only ModelSpec fields shown in the model info panel. */
+  const MODEL_SPEC_DISPLAY_FIELDS = [
+    "title",
+    "author",
+    "description",
+    "architecture",
+    "hash",
+    "resolution",
+    "prediction_type",
+    "trigger_phrase",
+    "usage_hint",
+    "tags",
+    "license",
+  ] as const;
+
+  function specHasDisplayFields(spec: ModelSpec | null): boolean {
+    if (!spec) return false;
+    return MODEL_SPEC_DISPLAY_FIELDS.some((field) => !!spec[field]);
+  }
 
   /** Strip HTML tags and convert to readable plain text. */
   function stripHtml(html: string): string {
@@ -280,51 +306,159 @@
       .trim();
   }
 
-  let modelSpecUnavailable = $state(false);
+  function familyIsSdxlLike(family: ModelFamily): boolean {
+    return ["sdxl", "illustrious", "pony", "mugen"].includes(family);
+  }
+
+  function currentModelMetadataKey(): string {
+    if (generation.useSplitModel && generation.diffusionModel) {
+      return `diffusion_models::${generation.diffusionModel}`;
+    }
+    if (generation.checkpoint) {
+      return `checkpoints::${generation.checkpoint}`;
+    }
+    return "";
+  }
+
+  function currentFamilyOverride(): ModelFamily | null {
+    const modelKey = currentModelMetadataKey();
+    return modelKey ? generation.modelFamilyOverrides[modelKey] ?? null : null;
+  }
+
+  function architectureBadgeLabel(): string {
+    if (!currentModelMetadataKey()) return "";
+    const manualOverride = currentFamilyOverride();
+    if (manualOverride) return manualOverride;
+    if (isModelMetadataLoading) return locale.t("generation.model.architecture_detecting");
+    return generation.modelFamily === "unknown" ? "undefined" : generation.modelFamily;
+  }
+
+  function applyCurrentModelFamilyOverride(family: ModelFamily | null): void {
+    const modelKey = currentModelMetadataKey();
+    if (!modelKey) return;
+
+    latestModelMetadataRequestId += 1;
+    isModelMetadataLoading = false;
+    showArchitecturePicker = false;
+    generation.setModelFamilyOverride(modelKey, family);
+
+    if (family) {
+      loadedModelMetadataKey = modelKey;
+      generation.applyModelMetadata({
+        modelspecPredictionType: null,
+        modelspecPredictKey: null,
+        modelspecHeaderVPred: false,
+        modelFamily: family,
+        modelIsSdxlLike: familyIsSdxlLike(family),
+        modelTurboVariant: "none",
+        modelRecommendedVae: null,
+        modelRecommendedClipModel: null,
+        modelRecommendedClipType: null,
+      });
+      generation.applyModelSpecificPreset();
+      return;
+    }
+
+    loadedModelMetadataKey = "";
+    if (generation.useSplitModel && generation.diffusionModel) {
+      loadModelSpec("diffusion_models", generation.diffusionModel);
+    } else if (generation.checkpoint) {
+      loadModelSpec("checkpoints", generation.checkpoint);
+    }
+  }
 
   async function loadModelSpec(category: string, filename: string) {
     if (!filename || !filename.endsWith(".safetensors")) {
+      loadedModelMetadataKey = "";
+      isModelMetadataLoading = false;
       modelSpec = null;
       modelSpecUnavailable = false;
-      modelSpecFilename = "";
+      generation.applyModelMetadata({
+        modelspecPredictionType: null,
+        modelspecPredictKey: null,
+        modelspecHeaderVPred: false,
+        modelFamily: "unknown",
+        modelIsSdxlLike: false,
+        modelTurboVariant: "none",
+        modelRecommendedVae: null,
+        modelRecommendedClipModel: null,
+        modelRecommendedClipType: null,
+      });
       return;
     }
-    if (filename === modelSpecFilename) return;
-    modelSpecFilename = filename;
-    modelSpecLoading = true;
-    modelSpecUnavailable = false;
+    const metadataKey = `${category}::${filename}`;
+    const manualOverride = generation.modelFamilyOverrides[metadataKey] ?? null;
+    if (manualOverride) {
+      loadedModelMetadataKey = metadataKey;
+      isModelMetadataLoading = false;
+      modelSpec = null;
+      modelSpecUnavailable = false;
+      generation.applyModelMetadata({
+        modelspecPredictionType: null,
+        modelspecPredictKey: null,
+        modelspecHeaderVPred: false,
+        modelFamily: manualOverride,
+        modelIsSdxlLike: familyIsSdxlLike(manualOverride),
+        modelTurboVariant: "none",
+        modelRecommendedVae: null,
+        modelRecommendedClipModel: null,
+        modelRecommendedClipType: null,
+      });
+      generation.applyModelSpecificPreset();
+      return;
+    }
+    if (metadataKey === loadedModelMetadataKey && generation.modelFamily !== "unknown") return;
+    const requestId = ++latestModelMetadataRequestId;
+    isModelMetadataLoading = true;
     try {
       const spec = await readModelSpec(category, filename);
-      let civitaiBaseModel: string | null = null;
-      if (spec?.hash) {
-        civitaiBaseModel = await lookupCivitaiBaseModel(spec.hash);
-      }
-      if (spec && Object.keys(spec).length > 0) {
-        modelSpec = spec;
-        generation.applyModelMetadata({
-          modelspecArchitecture: spec.architecture ?? null,
-          civitaiBaseModel,
-          modelspecPredictionType: spec.prediction_type ?? null,
-        });
-      } else {
-        modelSpec = null;
-        modelSpecUnavailable = true;
-        generation.applyModelMetadata({
-          modelspecArchitecture: null,
-          civitaiBaseModel,
-          modelspecPredictionType: null,
-        });
+      if (requestId !== latestModelMetadataRequestId) return;
+      if (currentModelMetadataKey() !== metadataKey) return;
+
+      modelSpec = specHasDisplayFields(spec) ? spec : null;
+      modelSpecUnavailable = !modelSpec;
+
+      const family = (spec?.family as ModelFamily | undefined) ?? "unknown";
+      loadedModelMetadataKey = metadataKey;
+      isModelMetadataLoading = false;
+      generation.applyModelMetadata({
+        modelspecPredictionType: spec?.prediction_type ?? null,
+        modelspecPredictKey: spec?.predict_key ?? null,
+        modelspecHeaderVPred: spec?.header_v_pred === "true",
+        modelFamily: family,
+        modelIsSdxlLike: spec?.is_sdxl_like === "true",
+        modelTurboVariant: TURBO_MODEL_VARIANTS.includes(spec?.turbo_model_variant as any)
+          ? spec!.turbo_model_variant
+          : "none",
+        modelRecommendedVae: spec?.recommended_vae ?? null,
+        modelRecommendedClipModel: spec?.recommended_clip_model ?? null,
+        modelRecommendedClipType: spec?.recommended_clip_type ?? null,
+      });
+      generation.ensureRecommendedSplitClip(models.textEncoders);
+      generation.ensureRecommendedSplitVae(models.vaes);
+      generation.applyModelSpecificPreset();
+      if (family === "unknown") {
+        loadedModelMetadataKey = "";
       }
     } catch {
+      if (requestId !== latestModelMetadataRequestId) return;
+      if (currentModelMetadataKey() !== metadataKey) return;
+
+      loadedModelMetadataKey = "";
+      isModelMetadataLoading = false;
       modelSpec = null;
       modelSpecUnavailable = true;
       generation.applyModelMetadata({
-        modelspecArchitecture: null,
-        civitaiBaseModel: null,
         modelspecPredictionType: null,
+        modelspecPredictKey: null,
+        modelspecHeaderVPred: false,
+        modelFamily: "unknown",
+        modelIsSdxlLike: false,
+        modelTurboVariant: "none",
+        modelRecommendedVae: null,
+        modelRecommendedClipModel: null,
+        modelRecommendedClipType: null,
       });
-    } finally {
-      modelSpecLoading = false;
     }
   }
 
@@ -333,6 +467,8 @@
       loadModelSpec("diffusion_models", generation.diffusionModel);
     } else if (generation.checkpoint) {
       loadModelSpec("checkpoints", generation.checkpoint);
+    } else {
+      isModelMetadataLoading = false;
     }
   });
 
@@ -345,6 +481,7 @@
   let downloadError = $state("");
   let modelSelectorRootEl = $state<HTMLDivElement | null>(null);
   let checkpointDropdownListEl = $state<HTMLDivElement | null>(null);
+  let architecturePickerEl = $state<HTMLDivElement | null>(null);
 
   /**
    * Detected NVIDIA compute capability. `null` until probed; remains `null`
@@ -469,6 +606,9 @@
   function handleDocumentPointerDown(event: PointerEvent) {
     const target = event.target;
     if (!(target instanceof Node)) return;
+    if (showArchitecturePicker && architecturePickerEl && !architecturePickerEl.contains(target)) {
+      showArchitecturePicker = false;
+    }
     if (modelSelectorRootEl?.contains(target)) return;
     showCheckpointDropdown = false;
     showLoraDropdown = null;
@@ -476,6 +616,7 @@
 
   function handleDocumentKeydown(event: KeyboardEvent) {
     if (event.key !== "Escape") return;
+    showArchitecturePicker = false;
     showCheckpointDropdown = false;
     showLoraDropdown = null;
   }
@@ -621,57 +762,6 @@
         })
     );
   });
-
-  /** Pair text encoder + CLIPLoader type for a manually picked diffusion model file */
-  function pickSplitModelClip(
-    diffusionModel: string,
-    encoders: string[],
-  ): { clip: string; clipType: string } {
-    const dm = diffusionModel.toLowerCase();
-    const looksAnimaOrQwen =
-      generation.isAnima ||
-      dm.includes("anima") ||
-      dm.includes("qwen") ||
-      dm.includes("wan") ||
-      dm.includes("yume");
-    if (looksAnimaOrQwen) {
-      const preferred =
-        encoders.find((e) => e.toLowerCase().includes("qwen_3_06b")) ??
-        encoders.find((e) => e.toLowerCase().includes("qwen"));
-      if (preferred) return { clip: preferred, clipType: "wan" };
-    }
-    if (dm.includes("flux") || dm.includes("klein")) {
-      const qwen8 = encoders.find((e) => {
-        const n = e.toLowerCase();
-        return n.includes("qwen_3_8b") || n.includes("fp4mixed");
-      });
-      if (qwen8) return { clip: qwen8, clipType: "qwen_image" };
-    }
-    if (encoders.length > 0) return { clip: encoders[0], clipType: "wan" };
-    return { clip: "", clipType: "wan" };
-  }
-
-  function pickSplitModelVae(diffusionModel: string, vaes: string[]): string {
-    if (vaes.length === 0) return "";
-    const dm = diffusionModel.toLowerCase();
-    const looksAnimaOrQwen =
-      generation.isAnima ||
-      dm.includes("anima") ||
-      dm.includes("qwen") ||
-      dm.includes("wan") ||
-      dm.includes("yume");
-    const looksFlux = dm.includes("flux") || dm.includes("klein");
-
-    if (looksAnimaOrQwen) {
-      const qwen = vaes.find((v) => v.toLowerCase().includes("qwen"));
-      if (qwen) return qwen;
-    }
-    if (looksFlux) {
-      const flux = vaes.find((v) => v.toLowerCase().includes("flux"));
-      if (flux) return flux;
-    }
-    return vaes.find((v) => v.toLowerCase().includes("sdxl_vae")) ?? vaes[0];
-  }
 
   interface DropdownItem {
     type: "checkpoint" | "recommended" | "diffusion";
@@ -824,25 +914,33 @@
     generation.diffusionModel = null;
     generation.clipModel = null;
     generation.clipType = null;
+    // generation.vae = "";  // Reset selected vae for checkpoint
     generation.checkpoint = name;
-    generation.applyModelMetadata({ modelspecArchitecture: null, civitaiBaseModel: null, modelspecPredictionType: null });
-    generation.applyModelSpecificPreset(name);
+    generation.applyModelMetadata({
+      modelspecPredictionType: null,
+      modelspecPredictKey: null,
+      modelspecHeaderVPred: false,
+      modelFamily: "unknown",
+      modelIsSdxlLike: false,
+      modelTurboVariant: "none",
+      modelRecommendedVae: null,
+      modelRecommendedClipModel: null,
+      modelRecommendedClipType: null,
+    });
+    generation.applyModelSpecificPreset();
     checkpointSearch = "";
     closeCheckpointDropdown();
   }
 
   /** Use a diffusion model file discovered on disk (not in the curated recommended list). */
-  function selectCustomDiffusion(filename: string) {
+  async function selectCustomDiffusion(filename: string) {
     closeCheckpointDropdown();
     checkpointSearch = "";
-    const { clip, clipType } = pickSplitModelClip(filename, models.textEncoders);
     generation.useSplitModel = true;
     generation.diffusionModel = filename;
-    generation.clipModel = clip || null;
-    generation.clipType = clipType;
-    generation.vae = pickSplitModelVae(filename, models.vaes);
     generation.checkpoint = filename;
-    generation.applyModelSpecificPreset(filename);
+    await loadModelSpec("diffusion_models", filename);
+    generation.applyModelSpecificPreset();
   }
 
   async function selectRecommended(rec: RecommendedModel) {
@@ -972,7 +1070,7 @@
       // Still notify autocomplete about model change (applyModelSpecificPreset won't run)
       autocomplete.notifyModelChanged(generation.isAnima);
     } else {
-      generation.applyModelSpecificPreset(generation.useSplitModel ? generation.diffusionModel : generation.checkpoint);
+      generation.applyModelSpecificPreset();
     }
   }
 
@@ -992,7 +1090,47 @@
 <div bind:this={modelSelectorRootEl} class="space-y-3">
   <!-- Checkpoint -->
   <div class="relative">
-    <label class="block text-xs text-neutral-400 mb-1">{locale.t('generation.model.checkpoint')}<InfoTip text={locale.t('generation.model.checkpoint_tip')} /></label>
+    <div class="mb-1 flex items-center justify-between gap-2">
+      <label class="block text-xs text-neutral-400">{locale.t('generation.model.checkpoint')}<InfoTip text={locale.t('generation.model.checkpoint_tip')} /></label>
+      {#if currentModelMetadataKey()}
+        <div bind:this={architecturePickerEl} class="relative shrink-0">
+          <button
+            type="button"
+            class="shrink-0 text-[10px] px-2 py-0.5 rounded-full border transition-colors cursor-pointer {isModelMetadataLoading
+              ? 'bg-amber-600/15 text-amber-300 border-amber-600/30 hover:bg-amber-600/25'
+              : currentFamilyOverride()
+                ? 'bg-indigo-600/20 text-indigo-300 border-indigo-600/30 hover:bg-indigo-600/30'
+                : generation.modelFamily === 'unknown'
+                  ? 'bg-red-600/15 text-red-300 border-red-600/30 hover:bg-red-600/25'
+                  : 'bg-emerald-600/20 text-emerald-400 border-emerald-600/30 hover:bg-emerald-600/30'}"
+            title={locale.t("generation.model.architecture_picker_title")}
+            onclick={() => showArchitecturePicker = !showArchitecturePicker}
+          >
+            {architectureBadgeLabel()}
+          </button>
+          {#if showArchitecturePicker}
+            <div class="absolute right-0 top-[calc(100%+6px)] z-20 min-w-40 rounded-lg border border-neutral-700 bg-neutral-900 p-2 shadow-xl">
+              <button
+                type="button"
+                class="mb-1 w-full rounded px-2 py-1 text-left text-xs text-neutral-300 hover:bg-neutral-800"
+                onclick={() => applyCurrentModelFamilyOverride(null)}
+              >
+                Auto
+              </button>
+              {#each MODEL_FAMILIES.filter((family) => family !== "unknown") as family}
+                <button
+                  type="button"
+                  class="block w-full rounded px-2 py-1 text-left text-xs text-neutral-300 hover:bg-neutral-800"
+                  onclick={() => applyCurrentModelFamilyOverride(family)}
+                >
+                  {family}
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      {/if}
+    </div>
     <button
       class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-left text-neutral-100 hover:border-neutral-600 focus:outline-none focus:border-indigo-500 transition-colors truncate flex items-center gap-2"
       onclick={toggleCheckpointDropdown}

@@ -511,19 +511,17 @@ export async function setStorageLimit(username: string, limitBytes: number): Pro
 }
 
 export interface ModelSpec {
-  architecture?: string;
-  title?: string;
-  description?: string;
-  author?: string;
-  resolution?: string;
-  trigger_phrase?: string;
-  usage_hint?: string;
-  tags?: string;
-  date?: string;
-  license?: string;
+  base_model?: string;
+  family?: string;
+  is_sdxl_like?: string;
+  turbo_model_variant?: string;
+  recommended_vae?: string;
+  recommended_clip_model?: string;
+  recommended_clip_type?: string;
+  hash?: string;
   prediction_type?: string;
-  thumbnail?: string;
-  merge_recipe?: string;
+  predict_key?: string;
+  header_v_pred?: string;
   [key: string]: string | undefined;
 }
 
@@ -544,6 +542,7 @@ export interface LoraCivitaiImage {
 export interface LoraCivitaiInfo {
   filename: string;
   hash?: string;
+  family?: string;
   /** "data:<mime>;base64,..." for local sidecar, "https://..." for CivitAI, or undefined. */
   thumbnail_url?: string;
   civitai_name?: string;
@@ -569,6 +568,7 @@ export interface CheckpointCivitaiInfo {
   hash?: string;
   display_name?: string;
   base_model?: string;
+  family?: string;
   /** "data:<mime>;base64,..." for local sidecar, "https://..." for CivitAI, or undefined. */
   thumbnail_url?: string;
   civitai_model_id?: number;

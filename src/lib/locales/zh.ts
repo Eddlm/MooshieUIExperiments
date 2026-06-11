@@ -553,6 +553,8 @@ const zh: Record<string, string> = {
   "generation.model.copy_trigger": "将触发词复制到提示词",
   "generation.model.hash_label": "哈希:",
   "generation.model.copy_hash": "复制哈希到剪贴板",
+  "generation.model.architecture_detecting": "检测中...",
+  "generation.model.architecture_picker_title": "已检测的模型架构",
   "generation.model.license_label": "许可证:",
 
   "generation.image.title": "图像输入",
@@ -1528,7 +1530,7 @@ const zh: Record<string, string> = {
 
 
   // -- Stubs (untranslated -- English fallback) --
-  "generation.prompts.negative_flux_disabled": "ignored by Flux models",
+  "generation.prompts.negative_disabled_for_model": "此模型会忽略",
   "generation.sampler.flux_guidance_label": "Flux Guidance",
   "generation.sampler.flux_guidance_tip": "Distilled guidance scale used by Flux Dev / Flux 2 Klein. Replaces CFG (which these models ignore). Sweet spot is 2.5–4. Higher = stronger prompt adherence but less natural images.",
 
