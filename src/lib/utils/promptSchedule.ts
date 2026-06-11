@@ -4,6 +4,7 @@ import {
   PROMPT_REGION_TAG_REGEX,
   PROMPT_SCHEDULE_REGEX,
 } from "./promptInertRanges.js";
+import { parseSegmentDetailPrompt } from "./promptSegmentDetail.js";
 
 export {
   findPromptInertRangeContaining,
@@ -201,7 +202,7 @@ export function renderHighlightedPrompt(raw: string, knownPresetSlugs?: Readonly
     const fullMatch = match[0];
     const matchStart = match.index;
 
-    html += renderPresetSegment(raw.slice(lastIndex, matchStart), knownPresetSlugs);
+    html += renderSegmentAwareText(raw.slice(lastIndex, matchStart), knownPresetSlugs);
     lastIndex = matchStart + fullMatch.length;
 
     let isValid = false;
@@ -237,7 +238,7 @@ export function renderHighlightedPrompt(raw: string, knownPresetSlugs?: Readonly
     html += `</span>`;
   }
 
-  html += renderPresetSegment(raw.slice(lastIndex), knownPresetSlugs);
+  html += renderSegmentAwareText(raw.slice(lastIndex), knownPresetSlugs);
   return html;
 }
 
@@ -272,6 +273,44 @@ function renderPresetSegment(text: string, knownPresetSlugs?: ReadonlySet<string
     html += `</span>`;
   }
   html += escapeHtml(text.slice(lastIndex));
+  return html;
+}
+
+/** Teal pill for <segment:...> / </segment> tags — distinct from scheduling gold. */
+const SEGMENT_TAG_COLOR = {
+  bg: "rgba(45, 212, 191, 0.12)",
+  border: "rgba(45, 212, 191, 0.45)",
+  glow: "0 0 10px rgba(45, 212, 191, 0.25), 0 0 4px rgba(45, 212, 191, 0.12)",
+};
+
+/**
+ * Highlight <segment:...> regions within a plain-text run, delegating the
+ * remaining text to renderPresetSegment for @preset highlighting.
+ *
+ * The whole region the parser would consume — open tag, refinement prompt and
+ * </segment> closer (or everything to the end for trailing form) — gets one
+ * teal pill, so the highlight mirrors exactly what leaves the base prompt.
+ * Invalid tags and orphan closers stay unhighlighted (they remain literal text).
+ */
+function renderSegmentAwareText(
+  text: string,
+  knownPresetSlugs?: ReadonlySet<string>,
+): string {
+  if (!text) return "";
+  if (!text.toLowerCase().includes("<segment:")) {
+    return renderPresetSegment(text, knownPresetSlugs);
+  }
+  const { ranges } = parseSegmentDetailPrompt(text);
+  let html = "";
+  let lastIndex = 0;
+  for (const range of ranges) {
+    html += renderPresetSegment(text.slice(lastIndex, range.start), knownPresetSlugs);
+    html += `<span style="display:inline;color:transparent;background:${SEGMENT_TAG_COLOR.bg};border:1px solid ${SEGMENT_TAG_COLOR.border};border-radius:4px;box-shadow:${SEGMENT_TAG_COLOR.glow};padding:1px 3px;margin:0 1px;">`;
+    html += escapeHtml(text.slice(range.start, range.end));
+    html += `</span>`;
+    lastIndex = range.end;
+  }
+  html += renderPresetSegment(text.slice(lastIndex), knownPresetSlugs);
   return html;
 }
 
