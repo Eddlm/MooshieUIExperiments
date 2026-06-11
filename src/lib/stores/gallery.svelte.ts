@@ -22,6 +22,7 @@ import {
 import { isTauri, isBrowserMode, getAuthToken } from "../utils/ipc.js";
 import { locale } from "./locale.svelte.js";
 import { generation } from "./generation.svelte.js";
+import { progress } from "./progress.svelte.js";
 import { createArtistGalleryClient } from "../artist-gallery/client.js";
 import { cdnFetch } from "../utils/cdnFetch.js";
 import {
@@ -426,6 +427,25 @@ class GalleryStore {
     this.selectedImage = null;
     this.lightboxUrl = url;
     this.lightboxOpen = true;
+    // If the URL belongs to a known session image, remember it so features
+    // like "use as model thumbnail" can resolve a gallery file later (#232).
+    const match = this.sessionImages.find((img) => img.url === url);
+    if (match) this.lastSelectedImage = match;
+  }
+
+  /**
+   * Resolve the persisted gallery filename for an image, waiting for an
+   * in-flight persist if necessary. Returns null when the image was never
+   * saved to the gallery (e.g. manual-save mode without saving).
+   */
+  async resolveGalleryFilename(image: OutputImage): Promise<string | null> {
+    if (image.gallery_filename) return image.gallery_filename;
+    const pending = this._persistPromises.get(this._imageKey(image));
+    if (pending) {
+      const galleryFilename = await pending;
+      if (galleryFilename) return galleryFilename;
+    }
+    return image.gallery_filename ?? null;
   }
 
   closeLightbox() {
@@ -433,7 +453,10 @@ class GalleryStore {
       // Don't revoke a blob URL that is still referenced by a session image
       // or by progress.lastOutputImage — revoking would break subsequent
       // lightbox opens and the post-generation preview in PreviewImage.
-      const isShared = this.sessionImages.some((img) => img.url === this.lightboxUrl);
+      const isShared =
+        this.sessionImages.some((img) => img.url === this.lightboxUrl) ||
+        progress.lastOutputImage === this.lightboxUrl ||
+        progress.previewImage === this.lightboxUrl;
       if (!isShared) URL.revokeObjectURL(this.lightboxUrl);
     }
     this.lightboxOpen = false;
@@ -735,7 +758,7 @@ class GalleryStore {
       } else {
         bytes = await getOutputImage(image.filename, image.subfolder);
       }
-      if (!bytes) throw new Error("Image bytes unavailable");
+      if (!bytes) throw new Error(locale.t("gallery.error.image_bytes_unavailable"));
 
       bytes = await this._ensurePngBytes(bytes);
       if (image.metadata) {
@@ -781,7 +804,7 @@ class GalleryStore {
       } else if (blob) {
         saveBytes = await this._blobToPngBytes(blob);
       } else {
-        throw new Error("Image URL is no longer available");
+        throw new Error(locale.t("gallery.error.image_url_unavailable"));
       }
 
       // Normalise the default filename extension — always saving as PNG.
@@ -833,7 +856,7 @@ class GalleryStore {
       } else {
         bytes = await getOutputImage(image.filename, image.subfolder);
       }
-      if (!bytes) throw new Error("Image bytes unavailable");
+      if (!bytes) throw new Error(locale.t("gallery.error.image_bytes_unavailable"));
       bytes = await this._ensurePngBytes(bytes);
       const filename = pngNormalizedFilename(image.filename || `image_${Date.now()}.png`);
       if (image.metadata) {
@@ -877,7 +900,7 @@ class GalleryStore {
               console.warn("JXL gallery transcode failed, falling back to display copy:", e);
               const displayUrl = image.displayTempFilename
                 ? tempImageUrl(image.displayTempFilename)
-                : image.url;
+                : (image.url || (this.selectedImage === image ? this.lightboxUrl : null));
               if (displayUrl) {
                 try {
                   pngBytes = await this._blobUrlToPngBytes(displayUrl);
@@ -914,12 +937,12 @@ class GalleryStore {
         if (!fetchUrl && galleryFilename) {
           fetchUrl = await fullImageUrl(galleryFilename);
         }
-        if (!fetchUrl) fetchUrl = image.url;
+        if (!fetchUrl) fetchUrl = image.url || (this.selectedImage === image ? this.lightboxUrl : null);
         if (fetchUrl) {
           try {
             const resp = await fetch(fetchUrl);
             if (!resp.ok) {
-              this.showToast(locale.t("gallery.toast.copy_failed") || "Failed to copy image", "error");
+              this.showToast(locale.t("gallery.toast.copy_failed"), "error");
               return;
             }
             const blob = await resp.blob();
@@ -1002,7 +1025,7 @@ class GalleryStore {
       await copyBytesToClipboard(bytes, ext);
       return;
     }
-    throw new Error("Clipboard API not available — copy not supported in this browser context");
+    throw new Error(locale.t("common.clipboard_unavailable"));
   }
 
   /** Copy a blob URL image to clipboard via native Tauri clipboard or browser Clipboard API. */
