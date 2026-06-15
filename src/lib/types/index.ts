@@ -220,6 +220,9 @@ export interface AppConfig {
   extra_model_paths: string | null;
   interrogator_general_threshold: number;
   interrogator_character_threshold: number;
+  prompt_assistant_model_id: string | null;
+  prompt_assistant_idle_timeout_secs: number;
+  prompt_assistant_setup_done: boolean;
   civitai_api_key: string | null;
   /** Present in browser mode for non-admin users when a server-side key is configured. */
   civitai_api_key_configured?: boolean;
@@ -321,4 +324,48 @@ export interface GpuStats {
   temperature: number;
   power_draw_w: number;
   worker: GpuWorkerInfo | null;
+}
+
+export interface LlmGpu {
+  name: string;
+  vram_mb: number;
+  vendor: string;
+}
+
+export interface LlmHardware {
+  gpus: LlmGpu[];
+  total_vram_mb: number;
+  system_ram_mb: number;
+  recommended_model_id: string;
+}
+
+export interface LlmVariant {
+  format: "gguf";
+  quant: string | null;
+  size_mb: number;
+  vram_mb: number;
+  repo: string;
+  file: string;
+}
+
+export interface LlmCatalogEntry {
+  id: string;
+  name: string;
+  purpose: "tag_upsampler" | "natural_language";
+  families: string[];
+  variants: LlmVariant[];
+  pros: string;
+  cons: string;
+  best_for: string;
+}
+
+export interface LlmStatus {
+  installed_models: string[];
+  active_model: string | null;
+  server_running: boolean;
+}
+
+export interface PromptAssistantOpts {
+  length?: "short" | "medium" | "detailed";
+  include_artists?: boolean;
 }

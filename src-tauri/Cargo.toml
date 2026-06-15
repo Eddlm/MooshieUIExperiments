@@ -1,6 +1,6 @@
 [package]
 name = "comfyui-desktop"
-version = "1.4.11"
+version = "1.4.12"
 edition = "2021"
 license = "AGPL-3.0-or-later"
 default-run = "comfyui-desktop"
@@ -79,6 +79,7 @@ open = "5"
 hex = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
 rust-embed = { version = "8", features = ["interpolate-folder-path"] }
+sysinfo = "0.33"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = { version = "=2.0.2", optional = true }

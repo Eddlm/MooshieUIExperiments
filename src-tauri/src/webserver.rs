@@ -2594,6 +2594,10 @@ async fn dispatch_command(
             let bg_state = Arc::clone(&state);
             let bg_placeholder = placeholder_id.clone();
             tokio::spawn(async move {
+                // Release the prompt-assistant LLM's VRAM so it doesn't starve
+                // ComfyUI's diffusion model during this generation. Done inside
+                // the spawned task so it never delays the HTTP acknowledgment.
+                bg_state.free_llm_vram_for_generation().await;
                 if needs_hold {
                     // Fair queue: hold this prompt until a slot opens for this user.
                     let submitted = Arc::new(tokio::sync::Notify::new());
@@ -4144,6 +4148,87 @@ async fn dispatch_command(
             "interrogate_clipboard not available in browser mode (no clipboard access)".to_string(),
         ),
 
+        // --- Prompt assistant ---
+        #[cfg(any(feature = "desktop", feature = "server"))]
+        "detect_llm_hardware" => {
+            let hw = tokio::task::spawn_blocking(crate::prompt_assistant::hardware::detect)
+                .await
+                .map_err(|e| e.to_string())?;
+            serde_json::to_value(hw).map_err(|e| e.to_string())
+        }
+        #[cfg(any(feature = "desktop", feature = "server"))]
+        "list_llm_catalog" => serde_json::to_value(crate::prompt_assistant::catalog::catalog())
+            .map_err(|e| e.to_string()),
+        #[cfg(any(feature = "desktop", feature = "server"))]
+        "llm_status" => {
+            let pa = &state.prompt_assistant;
+            Ok(serde_json::json!({
+                "installed_models": pa.installed_models(),
+                "active_model": pa.server.active_model(),
+                "server_running": pa.server.is_running(),
+            }))
+        }
+        #[cfg(any(feature = "desktop", feature = "server"))]
+        "unload_llm" => {
+            state.prompt_assistant.server.unload().await;
+            Ok(serde_json::Value::Null)
+        }
+        #[cfg(any(feature = "desktop", feature = "server"))]
+        "enhance_prompt" | "compose_prompt" => {
+            let input = if command == "enhance_prompt" {
+                args["prompt"].as_str().unwrap_or("").to_string()
+            } else {
+                args["description"].as_str().unwrap_or("").to_string()
+            };
+            let family = args["family"].as_str().unwrap_or("unknown").to_string();
+            let mode = if command == "enhance_prompt" {
+                crate::prompt_assistant::grounding::GenMode::Enhance
+            } else {
+                crate::prompt_assistant::grounding::GenMode::Compose
+            };
+            let result = run_prompt_assistant_headless(&state, &input, &family, mode).await?;
+            Ok(serde_json::Value::String(result))
+        }
+        #[cfg(any(feature = "desktop", feature = "server"))]
+        "download_llm_model" => {
+            let id = args["id"].as_str().unwrap_or("").to_string();
+            let variant = args["variant"].as_str().unwrap_or("").to_string();
+            let state_for_progress = state.clone();
+            let progress = move |filename: &str, downloaded: u64, total: u64, done: bool| {
+                state_for_progress.broadcast(
+                    "llm:download_progress",
+                    serde_json::json!({
+                        "filename": filename,
+                        "downloaded": downloaded,
+                        "total": total,
+                        "done": done,
+                    }),
+                );
+            };
+            state
+                .prompt_assistant
+                .download_model(&state.http_client, &id, &variant, &progress)
+                .await
+                .map_err(|e| e.to_string())?;
+            // Persist selected model id + mark setup done.
+            {
+                let mut cfg = state.config.write().await;
+                cfg.prompt_assistant_model_id = Some(id.clone());
+                cfg.prompt_assistant_setup_done = true;
+                let _ = crate::config::save_config(&cfg);
+            }
+            Ok(serde_json::Value::Null)
+        }
+        #[cfg(any(feature = "desktop", feature = "server"))]
+        "delete_llm_model" => {
+            let id = args["id"].as_str().unwrap_or("").to_string();
+            state
+                .prompt_assistant
+                .delete_model(&id)
+                .map_err(|e| e.to_string())?;
+            Ok(serde_json::Value::Null)
+        }
+
         // --- File operations ---
         "save_image_file" => {
             let image_bytes: Vec<u8> = serde_json::from_value(args["imageBytes"].clone())
@@ -4313,6 +4398,56 @@ async fn run_interrogation_headless(
     })
     .await
     .map_err(|e| format!("Inference task failed: {}", e))?
+}
+
+#[cfg(any(feature = "desktop", feature = "server"))]
+pub async fn run_prompt_assistant_headless(
+    state: &Arc<AppState>,
+    input: &str,
+    family: &str,
+    mode: crate::prompt_assistant::grounding::GenMode,
+) -> Result<String, String> {
+    use crate::prompt_assistant::{grounding, hardware};
+    if !state.prompt_queue.is_empty() {
+        return Err("prompt_assistant.busy_generation".to_string());
+    }
+    let (model_id, idle_secs) = {
+        let cfg = state.config.read().await;
+        (
+            cfg.prompt_assistant_model_id.clone(),
+            cfg.prompt_assistant_idle_timeout_secs,
+        )
+    };
+    let model_id = model_id.ok_or_else(|| "prompt_assistant.no_model".to_string())?;
+    let hw = tokio::task::spawn_blocking(hardware::detect)
+        .await
+        .map_err(|e| e.to_string())?;
+    let noop = |_: &str, _: u64, _: u64, _: bool| {};
+    let port = state
+        .prompt_assistant
+        .ensure_running(
+            &state.http_client,
+            &model_id,
+            hw.total_vram_mb,
+            idle_secs,
+            &noop,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    // A purpose-built tag upsampler is always tag-only regardless of family.
+    let purpose = crate::prompt_assistant::catalog::entry(&model_id)
+        .map(|e| e.purpose)
+        .unwrap_or_else(|| "natural_language".to_string());
+    let tag_only = grounding::is_tag_only(&purpose, family);
+    let candidates = grounding::retrieve_candidates(input, 40);
+    let system = grounding::system_prompt(tag_only, mode, &candidates);
+    let raw = state
+        .prompt_assistant
+        .server
+        .chat(&state.http_client, port, &system, input, 192)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(grounding::repair(&raw, tag_only))
 }
 
 // ---------------------------------------------------------------------------

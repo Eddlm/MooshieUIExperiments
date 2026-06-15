@@ -11,6 +11,8 @@ use crate::config::AppConfig;
 use crate::interrogator::InterrogatorState;
 use crate::model_requests::ModelRequestState;
 use crate::notifications::NotificationState;
+#[cfg(any(feature = "desktop", feature = "server"))]
+use crate::prompt_assistant::PromptAssistant;
 
 /// Stored Tauri AppHandle so the headless web server can control the window.
 #[cfg(feature = "desktop")]
@@ -474,6 +476,8 @@ pub struct AppState {
     pub http_client: reqwest::Client,
     #[cfg(any(feature = "desktop", feature = "server"))]
     pub interrogator: Arc<RwLock<InterrogatorState>>,
+    #[cfg(any(feature = "desktop", feature = "server"))]
+    pub prompt_assistant: Arc<PromptAssistant>,
     /// Broadcast channel for SSE events in browser mode.
     pub event_tx: broadcast::Sender<BroadcastEvent>,
     /// Timestamp of last heartbeat from browser client.
@@ -539,6 +543,8 @@ impl AppState {
             http_client,
             #[cfg(any(feature = "desktop", feature = "server"))]
             interrogator: Arc::new(RwLock::new(InterrogatorState::new())),
+            #[cfg(any(feature = "desktop", feature = "server"))]
+            prompt_assistant: Arc::new(PromptAssistant::new()),
             event_tx,
             last_heartbeat: Mutex::new(std::time::Instant::now()),
             #[cfg(feature = "desktop")]
@@ -558,6 +564,22 @@ impl AppState {
     pub async fn base_url(&self) -> String {
         let config = self.config.read().await;
         config.server_url.clone()
+    }
+
+    /// Free the prompt-assistant LLM's GPU memory before an image generation.
+    ///
+    /// The llama-server keeps its model fully resident in VRAM (≈5 GB for the
+    /// 4B Q8) until its idle watchdog fires, so a compose/enhance immediately
+    /// followed by a generation leaves ComfyUI competing for what's left and
+    /// spilling into shared system memory. Unloading here is cheap (the child
+    /// is killed in well under a second) and the next compose/enhance simply
+    /// respawns it via `ensure_running`.
+    #[cfg(any(feature = "desktop", feature = "server"))]
+    pub async fn free_llm_vram_for_generation(&self) {
+        if self.prompt_assistant.server.is_running() {
+            log::info!("[generate] unloading llama-server to free VRAM before generation");
+            self.prompt_assistant.server.unload().await;
+        }
     }
 
     pub async fn dispatch_webhook_event(
