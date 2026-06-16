@@ -54,6 +54,8 @@ interface ModelPreset {
   width: number;
   height: number;
   upscaleDenoise?: number;
+  /** Sampler to use when `samplerName` is absent from the backend's enumerated list. Defaults to "euler". */
+  samplerFallback?: string;
 }
 
 function isModelFamily(value: unknown): value is ModelFamily {
@@ -359,6 +361,11 @@ class GenerationStore {
   manualSaveMode = $state(false);
   /** Directories to auto-save images to when manualSaveMode is enabled. */
   autoSaveDirs = $state<string[]>([]);
+  /** When true, swapping checkpoints no longer auto-applies per-model generation params
+   *  (steps/cfg/sampler/scheduler/dimensions). Family/metadata detection still runs.
+   *  The first-ever preset application (while `modelPresetAppliedKey` is still unset) is
+   *  exempt so a fresh profile still gets sane defaults; every later swap preserves. */
+  advancedMode = $state(false);
   regionalPrompts = $state<RegionalPromptSelection[]>([]);
   /** SDXL/Illustrious: conditioning areas vs sequential inpaint. Anima always uses inpaint chain. */
   regionalPromptStrategy = $state<RegionalPromptStrategy>("conditioning");
@@ -841,7 +848,7 @@ class GenerationStore {
   private applyResolvedPreset(preset: ModelPreset) {
     this.steps = preset.steps;
     this.cfg = preset.cfg;
-    this.samplerName = this.resolveAvailableOption(models.samplers, preset.samplerName, "euler");
+    this.samplerName = this.resolveAvailableOption(models.samplers, preset.samplerName, preset.samplerFallback ?? "euler");
     this.scheduler = this.resolveAvailableOption(models.schedulers, preset.scheduler, "normal");
     this.width = preset.width;
     this.height = preset.height;
@@ -865,6 +872,15 @@ class GenerationStore {
       this.modelTurboVariant,
     ].join("|");
     if (presetKey === this.modelPresetAppliedKey) return;
+    const isFirstPresetApplication = !this.modelPresetAppliedKey;
+    // Advanced Mode: after the first-ever application, preserve the user's generation
+    // params on checkpoint swaps. Family/metadata detection runs separately in
+    // applyModelMetadata(); only the param writes below are skipped.
+    // Record the key only once the preset is actually applied (below) — recording
+    // it here would let the idempotency guard suppress the preset forever if the
+    // user later disables Advanced Mode on the same model.
+    if (this.advancedMode && !isFirstPresetApplication) return;
+
     this.modelPresetAppliedKey = presetKey;
 
     let preset: ModelPreset;
@@ -1069,8 +1085,12 @@ class GenerationStore {
       case "illustrious":
         preset = {
           steps: this.hasTurboModelVariant ? 10 : 20,
-          cfg: this.hasTurboModelVariant ? 1.0 : 5.0,
-          samplerName: this.hasTurboModelVariant ? "euler" : "euler_cfg_pp",
+          // euler_ancestral_cfg_pp is a CFG++ sampler tuned for low CFG (~1.5-2.2);
+          // CFG 2.0 keeps it inside its band. Falls back to plain euler_ancestral
+          // on older ComfyUI builds that lack the cfg_pp variant.
+          cfg: this.hasTurboModelVariant ? 1.0 : 2.0,
+          samplerName: this.hasTurboModelVariant ? "euler" : "euler_ancestral_cfg_pp",
+          samplerFallback: this.hasTurboModelVariant ? "euler" : "euler_ancestral",
           scheduler: this.hasTurboModelVariant ? "normal" : "sgm_uniform",
           width: 1024,
           height: 1024,
@@ -1217,6 +1237,7 @@ class GenerationStore {
           ) as Record<string, ModelFamily>;
         }
         if (saved.manualSaveMode !== undefined) this.manualSaveMode = saved.manualSaveMode;
+        if (saved.advancedMode !== undefined) this.advancedMode = saved.advancedMode;
         if (Array.isArray(saved.autoSaveDirs)) this.autoSaveDirs = saved.autoSaveDirs;
         if (saved.regionalPromptStrategy === "conditioning" || saved.regionalPromptStrategy === "inpaint_chain") {
           this.regionalPromptStrategy = saved.regionalPromptStrategy;
@@ -1344,6 +1365,7 @@ class GenerationStore {
         customNanosaurNegativeQuality: this.customNanosaurNegativeQuality,
         modelFamilyOverrides: this.modelFamilyOverrides,
         manualSaveMode: this.manualSaveMode,
+        advancedMode: this.advancedMode,
         autoSaveDirs: this.autoSaveDirs,
         regionalPrompts: this.regionalPrompts,
         regionalPromptStrategy: this.regionalPromptStrategy,
@@ -1436,6 +1458,7 @@ class GenerationStore {
       customNanosaurPositiveQuality: this.customNanosaurPositiveQuality,
       customNanosaurNegativeQuality: this.customNanosaurNegativeQuality,
       manualSaveMode: this.manualSaveMode,
+      advancedMode: this.advancedMode,
       autoSaveDirs: this.autoSaveDirs,
       regionalPrompts: this.regionalPrompts,
       regionalPromptStrategy: this.regionalPromptStrategy,

@@ -426,6 +426,12 @@ const es: Record<string, string> = {
   "settings.quality_warning.body2": "Solo desactiva esto si sabes lo que haces y quieres control manual completo sobre tus prompts.",
   "settings.quality_warning.keep": "Mantener activado",
   "settings.quality_warning.disable": "Desactivar de todos modos",
+  "settings.advanced_mode.label": "Advanced Mode",
+  "settings.advanced_mode.desc": "Stop auto-applying recommended steps, CFG, sampler, scheduler, and dimensions when you switch checkpoints. Your current settings are kept on every model swap.",
+  "settings.advanced_mode.warning_title": "Enable Advanced Mode?",
+  "settings.advanced_mode.warning_body": "With Advanced Mode on, switching checkpoints will no longer auto-tune steps, CFG, sampler, scheduler, or dimensions for the selected model. You'll set these yourself. Model family detection still works.",
+  "settings.advanced_mode.enable": "Enable",
+  "settings.advanced_mode.cancel": "Cancel",
 
   // ── Generación ──────────────────────────────────────────
   "generation.notification.image_ready_body": "Tu generación completada está lista para ver.",
@@ -556,6 +562,8 @@ const es: Record<string, string> = {
   "generation.sampler.sih_hint": "No se encontraron ajustes públicos del modelo SIH; usando valores predeterminados: 20 pasos, CFG 1.4, euler_cfg_pp, sgm_uniform.",
   "generation.sampler.juice_recommended": "Ajustes recomendados para Juice",
   "generation.sampler.juice_hint": "Valores predeterminados del proyecto para Juice: 20 pasos, CFG 1.4, euler_cfg_pp, sgm_uniform.",
+  "generation.sampler.cfg1_warning_title": "CFG 1 disables prompt guidance",
+  "generation.sampler.cfg1_warning_body": "At CFG 1 the model ignores your prompt's guidance. This only produces good results on Turbo, distilled, or Lightning models, and it breaks CFG++ samplers (like euler_cfg_pp / euler_ancestral_cfg_pp) entirely. Raise CFG to the recommended range unless you know your model needs CFG 1.",
   "generation.sampler.nanosaur_recommended": "Ajustes recomendados para Nanosaur",
   "generation.sampler.nanosaur_hint": "40 pasos, CFG 7, muestreador euler, programador simple. Resolución predeterminada 896×1152.",
   "generation.sampler.fix": "Corregir",

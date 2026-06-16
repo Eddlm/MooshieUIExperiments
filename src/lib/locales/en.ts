@@ -452,6 +452,12 @@ const en: Record<string, string> = {
   "settings.quality_warning.body2": "Only disable this if you know what you're doing and want full manual control over your prompts.",
   "settings.quality_warning.keep": "Keep enabled",
   "settings.quality_warning.disable": "Disable anyway",
+  "settings.advanced_mode.label": "Advanced Mode",
+  "settings.advanced_mode.desc": "Stop auto-applying recommended steps, CFG, sampler, scheduler, and dimensions when you switch checkpoints. Your current settings are kept on every model swap.",
+  "settings.advanced_mode.warning_title": "Enable Advanced Mode?",
+  "settings.advanced_mode.warning_body": "With Advanced Mode on, switching checkpoints will no longer auto-tune steps, CFG, sampler, scheduler, or dimensions for the selected model. You'll set these yourself. Model family detection still works.",
+  "settings.advanced_mode.enable": "Enable",
+  "settings.advanced_mode.cancel": "Cancel",
 
   // ── Generation ──────────────────────────────────────────
   "generation.mode.txt2img": "Text to Image",
@@ -587,6 +593,8 @@ const en: Record<string, string> = {
   "generation.sampler.sih_hint": "No public SIH model-card settings found; using project defaults: 20 steps, CFG 1.4, euler_cfg_pp, sgm_uniform.",
   "generation.sampler.juice_recommended": "Juice Recommended Settings",
   "generation.sampler.juice_hint": "Project defaults for Juice: 20 steps, CFG 1.4, euler_cfg_pp, sgm_uniform.",
+  "generation.sampler.cfg1_warning_title": "CFG 1 disables prompt guidance",
+  "generation.sampler.cfg1_warning_body": "At CFG 1 the model ignores your prompt's guidance. This only produces good results on Turbo, distilled, or Lightning models, and it breaks CFG++ samplers (like euler_cfg_pp / euler_ancestral_cfg_pp) entirely. Raise CFG to the recommended range unless you know your model needs CFG 1.",
   "generation.sampler.fix": "Fix",
 
   // Model

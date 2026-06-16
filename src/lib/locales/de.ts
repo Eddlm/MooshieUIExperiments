@@ -445,6 +445,12 @@ const de: Record<string, string> = {
   "settings.quality_warning.body2": "Nur deaktivieren, wenn Sie vollständige manuelle Kontrolle über Ihre Prompts wünschen.",
   "settings.quality_warning.keep": "Aktiviert lassen",
   "settings.quality_warning.disable": "Trotzdem deaktivieren",
+  "settings.advanced_mode.label": "Advanced Mode",
+  "settings.advanced_mode.desc": "Stop auto-applying recommended steps, CFG, sampler, scheduler, and dimensions when you switch checkpoints. Your current settings are kept on every model swap.",
+  "settings.advanced_mode.warning_title": "Enable Advanced Mode?",
+  "settings.advanced_mode.warning_body": "With Advanced Mode on, switching checkpoints will no longer auto-tune steps, CFG, sampler, scheduler, or dimensions for the selected model. You'll set these yourself. Model family detection still works.",
+  "settings.advanced_mode.enable": "Enable",
+  "settings.advanced_mode.cancel": "Cancel",
 
   // ── Generierung ─────────────────────────────────────────
   "generation.mode.txt2img": "Text zu Bild",
@@ -534,6 +540,8 @@ const de: Record<string, string> = {
   "generation.sampler.sih_hint": "Keine öffentlichen SIH-Modellkarteneinstellungen. Projekt-Standardwerte: 20 Schritte, CFG 1.4, euler_cfg_pp, sgm_uniform.",
   "generation.sampler.juice_recommended": "Empfohlene Juice-Einstellungen",
   "generation.sampler.juice_hint": "Projekt-Standardwerte für Juice: 20 Schritte, CFG 1.4, euler_cfg_pp, sgm_uniform.",
+  "generation.sampler.cfg1_warning_title": "CFG 1 disables prompt guidance",
+  "generation.sampler.cfg1_warning_body": "At CFG 1 the model ignores your prompt's guidance. This only produces good results on Turbo, distilled, or Lightning models, and it breaks CFG++ samplers (like euler_cfg_pp / euler_ancestral_cfg_pp) entirely. Raise CFG to the recommended range unless you know your model needs CFG 1.",
   "generation.sampler.nanosaur_recommended": "Empfohlene Nanosaur-Einstellungen",
   "generation.sampler.nanosaur_hint": "40 Schritte, CFG 7, euler Sampler, simple Scheduler. 896×1152 Standardauflösung.",
   "generation.sampler.fix": "Korrigieren",

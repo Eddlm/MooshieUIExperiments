@@ -429,6 +429,12 @@ const ru: Record<string, string> = {
   "settings.quality_warning.body2": "Отключайте только если знаете, что делаете, и хотите полного ручного контроля над промптами.",
   "settings.quality_warning.keep": "Оставить включённым",
   "settings.quality_warning.disable": "Всё равно отключить",
+  "settings.advanced_mode.label": "Advanced Mode",
+  "settings.advanced_mode.desc": "Stop auto-applying recommended steps, CFG, sampler, scheduler, and dimensions when you switch checkpoints. Your current settings are kept on every model swap.",
+  "settings.advanced_mode.warning_title": "Enable Advanced Mode?",
+  "settings.advanced_mode.warning_body": "With Advanced Mode on, switching checkpoints will no longer auto-tune steps, CFG, sampler, scheduler, or dimensions for the selected model. You'll set these yourself. Model family detection still works.",
+  "settings.advanced_mode.enable": "Enable",
+  "settings.advanced_mode.cancel": "Cancel",
 
   // ── Генерация ───────────────────────────────────────────
   "generation.mode.txt2img": "Текст в изображение",
@@ -518,6 +524,8 @@ const ru: Record<string, string> = {
   "generation.sampler.sih_hint": "Публичных настроек модели SIH не найдено; используются стандартные проекта: 20 шагов, CFG 1.4, euler_cfg_pp, sgm_uniform.",
   "generation.sampler.juice_recommended": "Рекомендуемые настройки Juice",
   "generation.sampler.juice_hint": "Стандартные значения проекта для Juice: 20 шагов, CFG 1.4, euler_cfg_pp, sgm_uniform.",
+  "generation.sampler.cfg1_warning_title": "CFG 1 disables prompt guidance",
+  "generation.sampler.cfg1_warning_body": "At CFG 1 the model ignores your prompt's guidance. This only produces good results on Turbo, distilled, or Lightning models, and it breaks CFG++ samplers (like euler_cfg_pp / euler_ancestral_cfg_pp) entirely. Raise CFG to the recommended range unless you know your model needs CFG 1.",
   "generation.sampler.nanosaur_recommended": "Рекомендуемые настройки Nanosaur",
   "generation.sampler.nanosaur_hint": "40 шагов, CFG 7, сэмплер euler, планировщик simple. Разрешение по умолчанию 896×1152.",
   "generation.sampler.fix": "Исправить",

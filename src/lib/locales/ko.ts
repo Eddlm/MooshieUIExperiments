@@ -429,6 +429,12 @@ const ko: Record<string, string> = {
   "settings.quality_warning.body2": "프롬프트를 완전히 수동으로 제어하려는 경우에만 비활성화하세요.",
   "settings.quality_warning.keep": "활성 유지",
   "settings.quality_warning.disable": "그래도 비활성화",
+  "settings.advanced_mode.label": "Advanced Mode",
+  "settings.advanced_mode.desc": "Stop auto-applying recommended steps, CFG, sampler, scheduler, and dimensions when you switch checkpoints. Your current settings are kept on every model swap.",
+  "settings.advanced_mode.warning_title": "Enable Advanced Mode?",
+  "settings.advanced_mode.warning_body": "With Advanced Mode on, switching checkpoints will no longer auto-tune steps, CFG, sampler, scheduler, or dimensions for the selected model. You'll set these yourself. Model family detection still works.",
+  "settings.advanced_mode.enable": "Enable",
+  "settings.advanced_mode.cancel": "Cancel",
 
   // ── 생성 ────────────────────────────────────────────────
   "generation.mode.txt2img": "텍스트에서 이미지",
@@ -518,6 +524,8 @@ const ko: Record<string, string> = {
   "generation.sampler.sih_hint": "공개 SIH 모델 카드 설정 없음. 프로젝트 기본값 사용: 20단계, CFG 1.4, euler_cfg_pp, sgm_uniform.",
   "generation.sampler.juice_recommended": "Juice 권장 설정",
   "generation.sampler.juice_hint": "Juice 프로젝트 기본값: 20단계, CFG 1.4, euler_cfg_pp, sgm_uniform.",
+  "generation.sampler.cfg1_warning_title": "CFG 1 disables prompt guidance",
+  "generation.sampler.cfg1_warning_body": "At CFG 1 the model ignores your prompt's guidance. This only produces good results on Turbo, distilled, or Lightning models, and it breaks CFG++ samplers (like euler_cfg_pp / euler_ancestral_cfg_pp) entirely. Raise CFG to the recommended range unless you know your model needs CFG 1.",
   "generation.sampler.nanosaur_recommended": "Nanosaur 권장 설정",
   "generation.sampler.nanosaur_hint": "40단계, CFG 7, euler 샘플러, simple 스케줄러. 기본 해상도 896×1152.",
   "generation.sampler.fix": "수정",

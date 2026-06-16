@@ -438,6 +438,12 @@ const fr: Record<string, string> = {
   "settings.quality_warning.body2": "Ne désactivez ceci que si vous savez ce que vous faites et souhaitez un contrôle entièrement manuel de vos prompts.",
   "settings.quality_warning.keep": "Garder activé",
   "settings.quality_warning.disable": "Désactiver quand même",
+  "settings.advanced_mode.label": "Advanced Mode",
+  "settings.advanced_mode.desc": "Stop auto-applying recommended steps, CFG, sampler, scheduler, and dimensions when you switch checkpoints. Your current settings are kept on every model swap.",
+  "settings.advanced_mode.warning_title": "Enable Advanced Mode?",
+  "settings.advanced_mode.warning_body": "With Advanced Mode on, switching checkpoints will no longer auto-tune steps, CFG, sampler, scheduler, or dimensions for the selected model. You'll set these yourself. Model family detection still works.",
+  "settings.advanced_mode.enable": "Enable",
+  "settings.advanced_mode.cancel": "Cancel",
 
   // ── Génération ──────────────────────────────────────────
   "generation.mode.txt2img": "Texte vers image",
@@ -531,6 +537,8 @@ const fr: Record<string, string> = {
   "generation.sampler.sih_hint": "Aucun paramètre public SIH trouvé ; utilisation des défauts du projet : 20 étapes, CFG 1.4, euler_cfg_pp, sgm_uniform.",
   "generation.sampler.juice_recommended": "Paramètres recommandés Juice",
   "generation.sampler.juice_hint": "Valeurs par défaut du projet pour Juice : 20 étapes, CFG 1.4, euler_cfg_pp, sgm_uniform.",
+  "generation.sampler.cfg1_warning_title": "CFG 1 disables prompt guidance",
+  "generation.sampler.cfg1_warning_body": "At CFG 1 the model ignores your prompt's guidance. This only produces good results on Turbo, distilled, or Lightning models, and it breaks CFG++ samplers (like euler_cfg_pp / euler_ancestral_cfg_pp) entirely. Raise CFG to the recommended range unless you know your model needs CFG 1.",
   "generation.sampler.nanosaur_recommended": "Paramètres recommandés Nanosaur",
   "generation.sampler.nanosaur_hint": "40 étapes, CFG 7, échantillonneur euler, planificateur simple. Résolution par défaut 896×1152.",
   "generation.sampler.fix": "Corriger",
