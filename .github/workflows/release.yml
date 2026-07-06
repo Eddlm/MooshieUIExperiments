@@ -14,10 +14,10 @@ permissions:
   contents: write
   packages: write
 
-# NUC runner only for build-server + docker-publish on official Mooshieblob1 releases.
-# Desktop build (Linux + Windows) always uses GitHub-hosted runners.
+# All jobs run on GitHub-hosted runners. The self-hosted NUC path is kept behind
+# this flag (flip back to the repository/actor check to re-enable it).
 env:
-  USE_NUC_RUNNER: ${{ github.repository == 'Mooshieblob1/MooshieUI' && github.actor == 'Mooshieblob1' }}
+  USE_NUC_RUNNER: 'false'
 
 jobs:
   build:
@@ -229,7 +229,7 @@ jobs:
   # Headless server binary (no webkit / Tauri deps required)
   # -------------------------------------------------------------------------
   build-server:
-    runs-on: ${{ github.repository == 'Mooshieblob1/MooshieUI' && github.actor == 'Mooshieblob1' && fromJSON('["self-hosted","mooshie-nuc","linux"]') || 'ubuntu-22.04' }}
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout
@@ -276,7 +276,7 @@ jobs:
   # -------------------------------------------------------------------------
   docker-publish:
     needs: build-server
-    runs-on: ${{ github.repository == 'Mooshieblob1/MooshieUI' && github.actor == 'Mooshieblob1' && fromJSON('["self-hosted","mooshie-nuc","linux"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
 
     steps:
       - name: Prepare local Docker build cache (NUC)
