@@ -526,6 +526,8 @@ const pl: Record<string, string> = {
   "generation.prompt.weight_select_hint": "Zaznacz tekst w prompcie, aby dostosować jego wagę",
   "generation.prompt.wrap_stronger": "Owiń zaznaczenie wagowaniem {}",
   "generation.prompt.wrap_weaker": "Owiń zaznaczenie wagowaniem []",
+  "generation.prompt.tokens": "tokeny",
+  "generation.prompt.tokens_tip": "Szacowana liczba tokenów CLIP. Koder tekstu dzieli prompt na fragmenty po 75 tokenów, więc przekroczenie granicy może zmienić wynik.",
 
   // Prompt presets
   "generation.presets.edit_title": "Edytuj preset promptu",
@@ -1093,7 +1095,8 @@ const pl: Record<string, string> = {
   "model_gallery.sort_name": "Nazwa",
   "model_gallery.sort_folder": "Folder",
   "model_gallery.sort_family": "Rodzina",
-  "model_gallery.sort_tip": "Sortuj modele według nazwy, folderu na dysku lub wykrytej rodziny modelu",
+  "model_gallery.sort_tree": "Drzewo",
+  "model_gallery.sort_tip": "Sortuj modele według nazwy, folderu na dysku, drzewa folderów lub wykrytej rodziny modelu",
   "gallery.use_as_checkpoint_thumb": "Ustaw jako miniaturę checkpointu",
   "gallery.use_as_lora_thumb": "Ustaw jako miniaturę LoRA",
   "gallery.persisted_only_thumb": "Najpierw zapisz ten obraz do galerii (obrazy wygenerowane w tej sesji nie mogą być jeszcze użyte)",

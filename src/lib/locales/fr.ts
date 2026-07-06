@@ -496,6 +496,8 @@ const fr: Record<string, string> = {
   "generation.prompt.weight_select_hint": "Sélectionnez du texte dans le prompt pour ajuster son poids",
   "generation.prompt.wrap_stronger": "Wrap selection with {} weighting",
   "generation.prompt.wrap_weaker": "Wrap selection with [] weighting",
+  "generation.prompt.tokens": "tokens",
+  "generation.prompt.tokens_tip": "Estimated CLIP tokens. The text encoder splits the prompt into 75-token chunks, so crossing a boundary can shift the result.",
 
   // Préréglages de style
   "generation.style.none": "Aucun",
@@ -2057,7 +2059,8 @@ const fr: Record<string, string> = {
   "model_gallery.sort_family": "Family",
   "model_gallery.sort_folder": "Folder",
   "model_gallery.sort_name": "Name",
-  "model_gallery.sort_tip": "Sort models by name, on-disk folder, or detected model family",
+  "model_gallery.sort_tree": "Tree",
+  "model_gallery.sort_tip": "Sort models by name, on-disk folder, folder tree, or detected model family",
   "modelhub.civitai.request_model": "Request",
   "settings.about.redeploy_to_update": "Redeploy or restart the MooshieUI server to update.",
   "settings.about.switch_to_app_mode": "Switch to App Mode",

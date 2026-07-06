@@ -527,6 +527,8 @@ const en: Record<string, string> = {
   "generation.prompt.weight_select_hint": "Select text in the prompt to adjust its weight",
   "generation.prompt.wrap_stronger": "Wrap selection with {} weighting",
   "generation.prompt.wrap_weaker": "Wrap selection with [] weighting",
+  "generation.prompt.tokens": "tokens",
+  "generation.prompt.tokens_tip": "Estimated CLIP tokens. The text encoder splits the prompt into 75-token chunks, so crossing a boundary can shift the result.",
 
   // Prompt presets
   "generation.presets.edit_title": "Edit Prompt Preset",
@@ -1094,7 +1096,8 @@ const en: Record<string, string> = {
   "model_gallery.sort_name": "Name",
   "model_gallery.sort_folder": "Folder",
   "model_gallery.sort_family": "Family",
-  "model_gallery.sort_tip": "Sort models by name, on-disk folder, or detected model family",
+  "model_gallery.sort_tree": "Tree",
+  "model_gallery.sort_tip": "Sort models by name, on-disk folder, folder tree, or detected model family",
   "gallery.use_as_checkpoint_thumb": "Set as checkpoint thumbnail",
   "gallery.use_as_lora_thumb": "Set as LoRA thumbnail",
   "gallery.persisted_only_thumb": "Save this image to the gallery first (generated images in the session cannot be used yet)",

@@ -486,6 +486,8 @@ const ko: Record<string, string> = {
   "generation.prompt.weight_select_hint": "프롬프트에서 텍스트를 선택하면 가중치를 조정할 수 있습니다",
   "generation.prompt.wrap_stronger": "Wrap selection with {} weighting",
   "generation.prompt.wrap_weaker": "Wrap selection with [] weighting",
+  "generation.prompt.tokens": "tokens",
+  "generation.prompt.tokens_tip": "Estimated CLIP tokens. The text encoder splits the prompt into 75-token chunks, so crossing a boundary can shift the result.",
 
   "generation.style.none": "없음",
   "generation.style.anime": "애니메",
@@ -2031,7 +2033,8 @@ const ko: Record<string, string> = {
   "model_gallery.sort_family": "Family",
   "model_gallery.sort_folder": "Folder",
   "model_gallery.sort_name": "Name",
-  "model_gallery.sort_tip": "Sort models by name, on-disk folder, or detected model family",
+  "model_gallery.sort_tree": "Tree",
+  "model_gallery.sort_tip": "Sort models by name, on-disk folder, folder tree, or detected model family",
   "modelhub.civitai.request_model": "Request",
   "settings.about.redeploy_to_update": "Redeploy or restart the MooshieUI server to update.",
   "settings.about.switch_to_app_mode": "Switch to App Mode",

@@ -493,6 +493,8 @@ const es: Record<string, string> = {
   "generation.prompt.weight_select_hint": "Selecciona texto en el prompt para ajustar su peso",
   "generation.prompt.wrap_stronger": "Wrap selection with {} weighting",
   "generation.prompt.wrap_weaker": "Wrap selection with [] weighting",
+  "generation.prompt.tokens": "tokens",
+  "generation.prompt.tokens_tip": "Estimated CLIP tokens. The text encoder splits the prompt into 75-token chunks, so crossing a boundary can shift the result.",
 
   // Presets de prompt
   "generation.presets.edit_title": "Editar preset de prompt",
@@ -2064,7 +2066,8 @@ const es: Record<string, string> = {
   "model_gallery.sort_family": "Family",
   "model_gallery.sort_folder": "Folder",
   "model_gallery.sort_name": "Name",
-  "model_gallery.sort_tip": "Sort models by name, on-disk folder, or detected model family",
+  "model_gallery.sort_tree": "Tree",
+  "model_gallery.sort_tip": "Sort models by name, on-disk folder, folder tree, or detected model family",
   "settings.app_mode.switched_to_browser": "Browser mode opened in your default browser. Use that tab — the desktop window will minimize shortly.",
 
   // ── i18n audit additions ────────────────────────────────
