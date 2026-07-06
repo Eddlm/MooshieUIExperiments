@@ -113,8 +113,10 @@
   let pendingOutputImages = new Map<string, Array<{ blob: Blob; url: string; tempFilename?: string; displayTempFilename?: string }>>();
   /** In-flight output_image fetch promises per prompt_id (for SSE race-condition avoidance). */
   let pendingOutputFetches = new Map<string, Promise<void>[]>();
-  /** Wait for pending fetches with a hard time limit to prevent hanging. */
-  const FETCH_TIMEOUT_MS = 30_000;
+  /** Wait for pending fetches with a hard time limit to prevent hanging.
+   *  Sized to leave room for fetchTempImageWithRetry's backoff (~5.6s) plus the
+   *  transfer of a large upscaled/16-bit refined image over a slow remote link. */
+  const FETCH_TIMEOUT_MS = 45_000;
   const GENERATION_DONE_TOAST_VISIBLE_MS = 6_000;
   const GENERATION_DONE_TOAST_EXIT_MS = 220;
   type PrimaryPage = "generate" | "gallery" | "modelhub" | "artists" | "characters" | "settings";
@@ -127,19 +129,28 @@
     const timeout = new Promise<void>((resolve) => setTimeout(resolve, FETCH_TIMEOUT_MS));
     await Promise.race([Promise.allSettled(fetches), timeout]);
   }
-  /** Fetch a `_temp_image` URL, retrying once after a short delay. A transient
-   *  failure here (e.g. a 401 while the LAN session token refreshes) would
-   *  otherwise drop the final output image and leave the blurry progress
-   *  preview stuck as the displayed result. */
-  async function fetchTempImageWithRetry(url: string): Promise<Response> {
-    try {
-      const resp = await fetch(url, { headers: authHeaders() });
-      if (resp.ok) return resp;
-    } catch {
-      // fall through to retry
+  /** Fetch a `_temp_image` URL, retrying a few times with exponential backoff.
+   *  A transient failure here (e.g. a 401 while the LAN session token refreshes,
+   *  or a slow remote link) would otherwise drop the final output image and
+   *  leave the blurry progress preview stuck as the displayed result. The
+   *  refined/upscaled image is the largest payload the app ever fetches, so it
+   *  is the most likely to need more than one attempt before we give up. */
+  async function fetchTempImageWithRetry(url: string, attempts = 4): Promise<Response> {
+    let lastResp: Response | null = null;
+    for (let i = 0; i < attempts; i++) {
+      if (i > 0) {
+        // Backoff: 0.8s, 1.6s, 3.2s.
+        await new Promise((resolve) => setTimeout(resolve, 800 * 2 ** (i - 1)));
+      }
+      try {
+        const resp = await fetch(url, { headers: authHeaders() });
+        if (resp.ok) return resp;
+        lastResp = resp;
+      } catch {
+        // network error — retry
+      }
     }
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    return fetch(url, { headers: authHeaders() });
+    return lastResp ?? new Response(null, { status: 599, statusText: "fetch failed" });
   }
   let reconcileIntervalId: ReturnType<typeof setInterval> | null = null;
   let sseReconnectHandler: (() => void) | null = null;
