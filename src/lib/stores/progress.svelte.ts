@@ -91,6 +91,18 @@ class ProgressStore {
     return this.activePrompt?.wasUpscaled ?? this._lastCompletedWasUpscaled;
   }
 
+  /** True when the active generation is in its upscale/refine sampling pass.
+   *  Normal hires-fix runs a base pass then an upscale pass (samplingPass >= 2).
+   *  The "Refine" button (refine_only) skips the base sampler, so its single
+   *  sampling pass IS the upscale pass — otherwise it would never show the
+   *  "upscaling" phase label or the emerald bar, making the refine look like it
+   *  never ran. */
+  get isUpscalePhase(): boolean {
+    if (!this.wasUpscaled) return false;
+    if (this.samplingPass >= 2) return true;
+    return this.activePrompt?.params?.refine_only === true && this.samplingPass >= 1;
+  }
+
   get lastParams(): GenerationParams | null {
     return this.activePrompt?.params ?? null;
   }
@@ -175,7 +187,7 @@ class ProgressStore {
         ? locale.t("progress.applying_style_reference_queued", { count: String(queuedSuffix) })
         : locale.t("progress.applying_style_reference");
     }
-    if (this.wasUpscaled && this.samplingPass >= 2) {
+    if (this.isUpscalePhase) {
       return this.queueCount > 1
         ? locale.t("progress.upscaling_queued", { count: String(queuedSuffix) })
         : locale.t("progress.upscaling");

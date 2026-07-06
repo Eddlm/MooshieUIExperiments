@@ -2416,24 +2416,26 @@ async fn dispatch_command(
             let ids = state.prompt_queue.related_ids(prompt_id);
             let mut cached = Vec::new();
             {
-                let mut outputs = state.output_image_cache.write().unwrap();
+                // Read without removing so a later reconcile pass can retry
+                // recovery if the client's image fetch fails. The entries are
+                // cleaned up by the TEMP_EVENT_CACHE_TTL reactor, so leaving
+                // them in place does not leak.
+                let outputs = state.output_image_cache.read().unwrap();
                 for id in &ids {
-                    if let Some(files) = outputs.remove(id) {
-                        cached.extend(files);
+                    if let Some(files) = outputs.get(id) {
+                        cached.extend(files.iter().cloned());
                     }
                 }
             }
             let mut seen = std::collections::HashSet::new();
             cached.retain(|f| seen.insert(f.clone()));
+            // Return every cached output. Recovery only runs when the client
+            // received zero images, so a Hires Fix prompt (pre-upscale +
+            // refined) must yield both here rather than only the last.
             let images: Vec<serde_json::Value> = cached
                 .into_iter()
                 .map(|f| serde_json::json!({ "temp_filename": f }))
                 .collect();
-            let images = if images.len() > 1 {
-                vec![images.last().cloned().unwrap()]
-            } else {
-                images
-            };
             Ok(serde_json::json!({ "images": images }))
         }
         "interrupt_generation" => {
