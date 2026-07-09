@@ -7,6 +7,7 @@ import {
   parseScheduledPrompt,
 } from "../utils/promptSchedule.js";
 import { parseSegmentDetailPrompt } from "../utils/promptSegmentDetail.js";
+import { joinPromptBoxes, sanitizePromptForSend } from "../utils/promptSanitize.js";
 import { extractScaleFromModel } from "../utils/upscalers.js";
 import {
   MODEL_FAMILIES,
@@ -16,6 +17,7 @@ import {
 } from "../utils/modelFamily.js";
 import type { ModelFamily, TurboModelVariant } from "../utils/modelFamily.js";
 import type {
+  ExtraPromptBox,
   GenerationParams,
   LoraEntry,
   RegionalPromptSelection,
@@ -90,6 +92,56 @@ function translateNaiWeightSyntax(prompt: string): string {
   } while (prompt !== prev);
 
   return prompt;
+}
+
+/**
+ * Translate InvokeAI/compel weight + emphasis syntax to ComfyUI (tag:weight).
+ * - (group)0.8      -> (group:0.8)      explicit weight, number OUTSIDE the paren
+ * - (group)+ / ++   -> (group:1.10) / (group:1.21)   group emphasis, 1.1^n
+ * - (group)- / --   -> (group:0.90) / (group:0.81)   group de-emphasis, 0.9^n
+ * - word+ / word--  -> (word:1.10) / (word:0.81)     bareword emphasis
+ * Guard: bareword rewrite only fires when the base (token minus the trailing
+ * +/- run) contains an ASCII letter, so emoticon tags like +_+ and bare ++ / 1+
+ * are left untouched. Blend/swap operators are intentionally not handled.
+ */
+function translateInvokeAiWeightSyntax(prompt: string): string {
+  const emphasisWeight = (marks: string): string => {
+    const base = marks[0] === "+" ? 1.1 : 0.9;
+    return Math.pow(base, marks.length).toFixed(2);
+  };
+
+  // 1. Group trailing explicit weight: (group)0.8 -> (group:0.8)
+  prompt = prompt.replace(
+    /\(([^()]+)\)(\d+\.?\d*)(?=[\s,(){}\[\]]|$)/g,
+    (_m, inner, weight) => `(${inner}:${weight})`,
+  );
+
+  // 2. Group emphasis: (group)+++ / (group)--- -> (group:W). Innermost-first.
+  let prev: string;
+  do {
+    prev = prompt;
+    prompt = prompt.replace(
+      /\(([^()]+)\)(\++|-+)/g,
+      (_m, inner, marks) => `(${inner}:${emphasisWeight(marks)})`,
+    );
+  } while (prompt !== prev);
+
+  // 3. Bareword emphasis: tokenize on delimiters, rewrite word+ / word- when the
+  // base has a letter. Delimiters: whitespace , ( ) { }
+  prompt = prompt.replace(/[^\s,(){}]+/g, (token) => {
+    const m = token.match(/^(.*?)(\++|-+)$/);
+    if (!m) return token;
+    const base = m[1];
+    if (!/[a-zA-Z]/.test(base)) return token;
+    return `(${base}:${emphasisWeight(m[2])})`;
+  });
+
+  return prompt;
+}
+
+/** Apply InvokeAI translation, then NAI translation, to a prompt string. */
+function translatePromptWeightSyntax(prompt: string): string {
+  return translateNaiWeightSyntax(translateInvokeAiWeightSyntax(prompt));
 }
 
 type StylePresetId = "none" | "anime" | "cinematic" | "photoreal" | "digital_art" | "line_art";
@@ -268,6 +320,8 @@ class GenerationStore {
   modeToggles = $state<ModeToggleStates>(createDefaultModeToggles());
   positivePrompt = $state("");
   negativePrompt = $state("");
+  extraPositiveBoxes = $state<ExtraPromptBox[]>([]);
+  extraNegativeBoxes = $state<ExtraPromptBox[]>([]);
   checkpoint = $state("");
   vae = $state("");
   loras = $state<LoraEntry[]>([]);
@@ -805,8 +859,16 @@ class GenerationStore {
   }
 
   saveCurrentPromptToHistory() {
-    const positivePrompt = this.positivePrompt.trim();
-    const negativePrompt = this.negativePrompt.trim();
+    // Snapshot the full concatenated prompt (main box + extra boxes) so history
+    // entries stay self-contained — restoring one replays everything the user saw.
+    const positivePrompt = joinPromptBoxes([
+      this.positivePrompt,
+      ...this.extraPositiveBoxes.map((b) => b.content),
+    ]);
+    const negativePrompt = joinPromptBoxes([
+      this.negativePrompt,
+      ...this.extraNegativeBoxes.map((b) => b.content),
+    ]);
     if (!positivePrompt && !negativePrompt) return;
 
     const existing = this.promptHistory.find(
@@ -853,6 +915,10 @@ class GenerationStore {
 
     this.positivePrompt = entry.positivePrompt;
     this.negativePrompt = entry.negativePrompt;
+    // The stored prompt already includes any extra-box content (concatenated at
+    // save time), so clear the boxes to avoid duplicating it back on top.
+    this.extraPositiveBoxes = [];
+    this.extraNegativeBoxes = [];
     this.mode = entry.mode;
     this.stylePreset = entry.stylePreset;
 
@@ -861,6 +927,51 @@ class GenerationStore {
       ...this.promptHistory.filter((item) => item.id !== entry.id),
     ];
     this.savePromptHistory();
+    this.saveSettings();
+  }
+
+  private newBoxId(): string {
+    return crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+
+  addPositiveBox() {
+    this.extraPositiveBoxes = [
+      ...this.extraPositiveBoxes,
+      { id: this.newBoxId(), name: "", content: "" },
+    ];
+    this.saveSettings();
+  }
+
+  removePositiveBox(id: string) {
+    this.extraPositiveBoxes = this.extraPositiveBoxes.filter((b) => b.id !== id);
+    this.saveSettings();
+  }
+
+  updatePositiveBox(id: string, patch: Partial<Pick<ExtraPromptBox, "name" | "content">>) {
+    this.extraPositiveBoxes = this.extraPositiveBoxes.map((b) =>
+      b.id === id ? { ...b, ...patch } : b
+    );
+    this.saveSettings();
+  }
+
+  addNegativeBox() {
+    this.extraNegativeBoxes = [
+      ...this.extraNegativeBoxes,
+      { id: this.newBoxId(), name: "", content: "" },
+    ];
+    this.saveSettings();
+  }
+
+  removeNegativeBox(id: string) {
+    this.extraNegativeBoxes = this.extraNegativeBoxes.filter((b) => b.id !== id);
+    this.saveSettings();
+  }
+
+  updateNegativeBox(id: string, patch: Partial<Pick<ExtraPromptBox, "name" | "content">>) {
+    this.extraNegativeBoxes = this.extraNegativeBoxes.map((b) =>
+      b.id === id ? { ...b, ...patch } : b
+    );
+    this.saveSettings();
   }
 
   private resolveAvailableOption(options: string[], preferred: string, fallback: string): string {
@@ -1198,6 +1309,20 @@ class GenerationStore {
         if (saved.differentialDiffusion !== undefined) this.differentialDiffusion = saved.differentialDiffusion;
         if (saved.positivePrompt) this.positivePrompt = saved.positivePrompt;
         if (saved.negativePrompt) this.negativePrompt = saved.negativePrompt;
+        const sanitizeBoxes = (raw: unknown): ExtraPromptBox[] =>
+          (Array.isArray(raw) ? raw : [])
+            .filter((b: unknown) => !!b && typeof b === "object")
+            .map((b: any) => ({
+              id: typeof b.id === "string" && b.id ? b.id : (crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`),
+              name: typeof b.name === "string" ? b.name : "",
+              content: typeof b.content === "string" ? b.content : "",
+            }));
+        if (Array.isArray(saved.extraPositiveBoxes)) {
+          this.extraPositiveBoxes = sanitizeBoxes(saved.extraPositiveBoxes);
+        }
+        if (Array.isArray(saved.extraNegativeBoxes)) {
+          this.extraNegativeBoxes = sanitizeBoxes(saved.extraNegativeBoxes);
+        }
         if (Array.isArray(saved.loras)) {
           this.loras = saved.loras.map((l: any) => ({
             name: l.name || "",
@@ -1339,6 +1464,8 @@ class GenerationStore {
         modeToggles,
         positivePrompt: this.positivePrompt,
         negativePrompt: this.negativePrompt,
+        extraPositiveBoxes: this.extraPositiveBoxes,
+        extraNegativeBoxes: this.extraNegativeBoxes,
         checkpoint: this.checkpoint,
         modelPresetAppliedKey: this.modelPresetAppliedKey,
         vae: this.vae,
@@ -1437,6 +1564,8 @@ class GenerationStore {
       modeToggles,
       positivePrompt: this.positivePrompt,
       negativePrompt: this.negativePrompt,
+      extraPositiveBoxes: this.extraPositiveBoxes,
+      extraNegativeBoxes: this.extraNegativeBoxes,
       checkpoint: this.checkpoint,
       modelPresetAppliedKey: this.modelPresetAppliedKey,
       vae: this.vae,
@@ -1583,16 +1712,27 @@ class GenerationStore {
       ? (STYLE_PRESETS.find((preset) => preset.id === this.stylePreset) ?? STYLE_PRESETS[0])
       : STYLE_PRESETS[0];
 
+    // Concatenate the main prompt with any extra boxes (chronological order,
+    // like chained ComfyUI string-concatenate nodes), then strip BREAK/<break>
+    // and layout newlines. This runs before inline preset resolution so that
+    // `@preset:` tokens inside extra boxes still flow through the pipeline.
+    const effectivePositive = sanitizePromptForSend(
+      joinPromptBoxes([this.positivePrompt, ...this.extraPositiveBoxes.map((b) => b.content)])
+    );
+    const effectiveNegative = sanitizePromptForSend(
+      joinPromptBoxes([this.negativePrompt, ...this.extraNegativeBoxes.map((b) => b.content)])
+    );
+
     // Expand inline `@preset:<slug>` directives in the user-typed prompts
     // first, so wildcard rolls happen before any merging/dedup logic. Each
     // occurrence rolls independently.
-    const inlinePositiveIds = promptPresets.inlinePresetIds(this.positivePrompt);
-    const inlineNegativeIds = promptPresets.inlinePresetIds(this.negativePrompt);
+    const inlinePositiveIds = promptPresets.inlinePresetIds(effectivePositive);
+    const inlineNegativeIds = promptPresets.inlinePresetIds(effectiveNegative);
     const inlinePresetIds = new Set([...inlinePositiveIds, ...inlineNegativeIds]);
-    const inlinePositive = promptPresets.resolveInline(this.positivePrompt, {
+    const inlinePositive = promptPresets.resolveInline(effectivePositive, {
       fixedChoices: options.fixedPresetChoices,
     });
-    const inlineNegative = promptPresets.resolveInline(this.negativePrompt, {
+    const inlineNegative = promptPresets.resolveInline(effectiveNegative, {
       fixedChoices: options.fixedPresetChoices,
     });
 
@@ -1731,9 +1871,9 @@ class GenerationStore {
     const parsedPositive = parseScheduledPrompt(positivePrompt);
     const parsedNegative = parseScheduledPrompt(negativePrompt);
 
-    const translatedPositiveBase = translateNaiWeightSyntax(parsedPositive.baseText);
+    const translatedPositiveBase = translatePromptWeightSyntax(parsedPositive.baseText);
     const translatedPositiveSegments = parsedPositive.segments.map((s) => ({
-      text: translateNaiWeightSyntax(s.text),
+      text: translatePromptWeightSyntax(s.text),
       start: s.start,
       end: s.end,
     }));
@@ -1778,16 +1918,16 @@ class GenerationStore {
     const params: GenerationParams = {
       mode: this.mode,
       positive_prompt: translatedPositiveBase,
-      negative_prompt: translateNaiWeightSyntax(parsedNegative.baseText),
+      negative_prompt: translatePromptWeightSyntax(parsedNegative.baseText),
       positive_segments: translatedPositiveSegments,
       negative_segments: parsedNegative.segments.map((s) => ({
-        text: translateNaiWeightSyntax(s.text),
+        text: translatePromptWeightSyntax(s.text),
         start: s.start,
         end: s.end,
       })),
       detail_segments: parsedSegmentDetails.segments.map((s) => ({
         target: s.target,
-        prompt: translateNaiWeightSyntax(s.prompt),
+        prompt: translatePromptWeightSyntax(s.prompt),
         creativity: s.creativity,
         threshold: s.threshold,
       })),
