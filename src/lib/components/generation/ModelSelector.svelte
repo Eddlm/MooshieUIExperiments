@@ -9,7 +9,7 @@
   import InfoTip from "../ui/InfoTip.svelte";
   import { scrollCapture } from "../../utils/scrollCapture.js";
   import { MODEL_FAMILIES, TURBO_MODEL_VARIANTS } from "../../utils/modelFamily.js";
-  import type { ModelFamily } from "../../utils/modelFamily.js";
+  import type { ModelFamily, TurboModelVariant } from "../../utils/modelFamily.js";
 
   interface ModelFile {
     filename: string;
@@ -367,8 +367,21 @@
     }
   }
 
+  // GGUF models carry no safetensors header, but the backend still resolves
+  // family/turbo/recommended-encoder info from the filename and sidecars —
+  // without this, GGUF split models (e.g. Krea 2 quants) never get a clip type.
+  function supportsModelSpec(filename: string): boolean {
+    return filename.endsWith(".safetensors") || filename.toLowerCase().endsWith(".gguf");
+  }
+
+  function toTurboModelVariant(value: string | undefined): TurboModelVariant {
+    return TURBO_MODEL_VARIANTS.includes(value as TurboModelVariant)
+      ? (value as TurboModelVariant)
+      : "none";
+  }
+
   async function loadModelSpec(category: string, filename: string) {
-    if (!filename || !filename.endsWith(".safetensors")) {
+    if (!filename || !supportsModelSpec(filename)) {
       loadedModelMetadataKey = "";
       isModelMetadataLoading = false;
       modelSpec = null;
@@ -427,9 +440,7 @@
         modelspecHeaderVPred: spec?.header_v_pred === "true",
         modelFamily: family,
         modelIsSdxlLike: spec?.is_sdxl_like === "true",
-        modelTurboVariant: TURBO_MODEL_VARIANTS.includes(spec?.turbo_model_variant as any)
-          ? spec!.turbo_model_variant
-          : "none",
+        modelTurboVariant: toTurboModelVariant(spec?.turbo_model_variant),
         modelRecommendedVae: spec?.recommended_vae ?? null,
         modelRecommendedClipModel: spec?.recommended_clip_model ?? null,
         modelRecommendedClipType: spec?.recommended_clip_type ?? null,
