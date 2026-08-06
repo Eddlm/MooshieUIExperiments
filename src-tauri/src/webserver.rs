@@ -221,15 +221,10 @@ fn is_staff_only_event(event: &str) -> bool {
         || event == "custom_node:installed"
 }
 
-/// Gallery files we list, count against storage quotas, and expire — must stay
-/// in sync with the formats `save_to_gallery` can write (JXL included).
+/// Which gallery files the browser-mode endpoints list, quota-count, and
+/// expire. Delegates to the canonical filter next to the save pipeline.
 fn is_gallery_image_filename(name: &str) -> bool {
-    let lower = name.to_ascii_lowercase();
-    lower.ends_with(".png")
-        || lower.ends_with(".jpg")
-        || lower.ends_with(".jpeg")
-        || lower.ends_with(".webp")
-        || lower.ends_with(".jxl")
+    crate::commands::api::is_listable_gallery_file(name)
 }
 
 /// Commands that moderators (and admins) can execute.
@@ -1524,6 +1519,9 @@ async fn gallery_image_handler(
     };
 
     let file_path = gallery_dir.join(&filename);
+    if filename.to_ascii_lowercase().ends_with(".mp4") {
+        return serve_video_file(&file_path, headers.get(axum::http::header::RANGE)).await;
+    }
     match tokio::fs::read(&file_path).await {
         Ok(data) => {
             let lower = filename.to_ascii_lowercase();
@@ -1591,6 +1589,63 @@ async fn gallery_image_handler(
                 .into_response()
         }
         Err(_) => (StatusCode::NOT_FOUND, "Image not found").into_response(),
+    }
+}
+
+/// Serve an mp4 with single-range support so `<video>` seeking works.
+/// Open-ended ranges are capped (see `http_range::OPEN_END_CHUNK`) — players
+/// re-request as they play, so the server never reads a whole multi-hundred-MB
+/// file for one request.
+async fn serve_video_file(
+    path: &std::path::Path,
+    range: Option<&axum::http::HeaderValue>,
+) -> Response {
+    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+    let mut file = match tokio::fs::File::open(path).await {
+        Ok(f) => f,
+        Err(_) => return (StatusCode::NOT_FOUND, "Video not found").into_response(),
+    };
+    let len = match file.metadata().await {
+        Ok(m) => m.len(),
+        Err(_) => 0,
+    };
+    match range
+        .and_then(|v| v.to_str().ok())
+        .and_then(|h| crate::http_range::parse(h, len))
+    {
+        Some((start, end)) => {
+            if file.seek(std::io::SeekFrom::Start(start)).await.is_err() {
+                return (StatusCode::INTERNAL_SERVER_ERROR, "Seek failed").into_response();
+            }
+            let mut buf = vec![0u8; (end - start + 1) as usize];
+            if file.read_exact(&mut buf).await.is_err() {
+                return (StatusCode::INTERNAL_SERVER_ERROR, "Read failed").into_response();
+            }
+            (
+                StatusCode::PARTIAL_CONTENT,
+                [
+                    ("content-type", "video/mp4".to_string()),
+                    ("accept-ranges", "bytes".to_string()),
+                    ("content-range", format!("bytes {start}-{end}/{len}")),
+                    ("cache-control", "no-cache".to_string()),
+                ],
+                buf,
+            )
+                .into_response()
+        }
+        None => match tokio::fs::read(path).await {
+            Ok(bytes) => (
+                StatusCode::OK,
+                [
+                    ("content-type", "video/mp4".to_string()),
+                    ("accept-ranges", "bytes".to_string()),
+                    ("cache-control", "no-cache".to_string()),
+                ],
+                bytes,
+            )
+                .into_response(),
+            Err(_) => (StatusCode::NOT_FOUND, "Video not found").into_response(),
+        },
     }
 }
 
@@ -5435,7 +5490,7 @@ fn get_lan_ips() -> Vec<String> {
 /// Resolve the gallery directory for a given user.
 /// Admin/localhost (username=None) uses the root gallery dir.
 /// LAN users get a per-user subdirectory: `gallery/users/{username}/`.
-fn user_gallery_dir(username: Option<&str>) -> Option<std::path::PathBuf> {
+pub(crate) fn user_gallery_dir(username: Option<&str>) -> Option<std::path::PathBuf> {
     let base = config::gallery_dir()?;
     match username {
         Some(name) => {
@@ -5614,6 +5669,7 @@ fn save_to_gallery_in_dir(
                 crate::metadata::embed_webp_metadata(bytes, meta, embed_mode)
                     .unwrap_or_else(|_| bytes.to_vec())
             }
+            crate::metadata::ImageFormat::Mp4 => bytes.to_vec(),
             crate::metadata::ImageFormat::Unknown => bytes.to_vec(),
         }
     } else {
@@ -5878,9 +5934,20 @@ fn cleanup_expired_images(auth: &AuthState) {
                     if let Ok(age) = now.duration_since(modified) {
                         if age > expiry {
                             let size = meta.len();
-                            if std::fs::remove_file(file_entry.path()).is_ok() {
+                            let path = file_entry.path();
+                            if std::fs::remove_file(&path).is_ok() {
                                 expired_count += 1;
                                 expired_bytes += size;
+                                crate::gallery_index::remove(&path);
+                                // Videos own a poster sidecar that listings
+                                // never surface; expire it with its mp4.
+                                if let Some(stem) = name.strip_suffix(".mp4") {
+                                    let poster = user_dir.join(format!("{stem}_poster.webp"));
+                                    if poster.is_file() {
+                                        let _ = std::fs::remove_file(&poster);
+                                        crate::gallery_index::remove(&poster);
+                                    }
+                                }
                             }
                         }
                     }
