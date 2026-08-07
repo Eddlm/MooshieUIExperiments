@@ -1633,19 +1633,40 @@ async fn serve_video_file(
             )
                 .into_response()
         }
-        None => match tokio::fs::read(path).await {
-            Ok(bytes) => (
+        None => {
+            // No Range header: stream the file in chunks rather than reading it
+            // whole. A 15 s H3 mp4 can be hundreds of MB, and the browser-mode
+            // save-video-as download takes this branch. Content-Length stays
+            // exact so downloads are still verifiable and resumable.
+            let stream = futures_util::stream::unfold(Some(file), |state| async move {
+                let mut file = state?;
+                let mut buf = vec![0u8; 256 * 1024];
+                match file.read(&mut buf).await {
+                    Ok(0) => None,
+                    Ok(n) => {
+                        buf.truncate(n);
+                        Some((
+                            Ok::<_, std::io::Error>(axum::body::Bytes::from(buf)),
+                            Some(file),
+                        ))
+                    }
+                    // Ending the stream with the error surfaces a truncated
+                    // body to the client instead of silently short-reading.
+                    Err(e) => Some((Err(e), None)),
+                }
+            });
+            (
                 StatusCode::OK,
                 [
                     ("content-type", "video/mp4".to_string()),
                     ("accept-ranges", "bytes".to_string()),
+                    ("content-length", len.to_string()),
                     ("cache-control", "no-cache".to_string()),
                 ],
-                bytes,
+                axum::body::Body::from_stream(stream),
             )
-                .into_response(),
-            Err(_) => (StatusCode::NOT_FOUND, "Video not found").into_response(),
-        },
+                .into_response()
+        }
     }
 }
 
@@ -2572,6 +2593,8 @@ async fn dispatch_command(
             if !dir.exists() {
                 return Ok(serde_json::json!([]));
             }
+            // One query for the whole video table, not one per directory entry.
+            let durations = crate::gallery_index::video_durations();
             let mut files: Vec<_> = std::fs::read_dir(&dir)
                 .map_err(|e| e.to_string())?
                 .filter_map(|entry| {
@@ -2589,10 +2612,12 @@ async fn dispatch_command(
                         .duration_since(std::time::UNIX_EPOCH)
                         .ok()?
                         .as_millis() as u64;
+                    let duration_seconds = durations.get(&name).copied();
                     Some(serde_json::json!({
                         "filename": name,
                         "size_bytes": metadata.len(),
                         "modified_ms": modified_ms,
+                        "duration_seconds": duration_seconds,
                     }))
                 })
                 .collect();
@@ -3145,6 +3170,17 @@ async fn dispatch_command(
                 std::fs::remove_file(&path).map_err(|e| e.to_string())?;
             }
             crate::gallery_index::remove(&path);
+            // Videos own a poster sidecar that listings never surface; delete it
+            // together with its mp4, matching the desktop `delete_gallery_image`
+            // command. Without this, deleting a video in browser mode orphans the
+            // poster file and its index row forever.
+            if let Some(stem) = filename.strip_suffix(".mp4") {
+                let poster = path.with_file_name(format!("{stem}_poster.webp"));
+                if poster.is_file() {
+                    let _ = std::fs::remove_file(&poster);
+                    crate::gallery_index::remove(&poster);
+                }
+            }
             Ok(serde_json::json!(null))
         }
         "rename_gallery_image" => {
