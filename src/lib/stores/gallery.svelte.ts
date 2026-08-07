@@ -20,6 +20,7 @@ import {
   copyImageToClipboard,
   copyBytesToClipboard,
   copyGalleryImageToClipboard,
+  copyFileToClipboard,
   getGalleryImagePath,
   getStorageInfo,
   readImageMetadata,
@@ -542,7 +543,7 @@ class GalleryStore {
    */
   async addPersistedImage(
     galleryFilename: string,
-    videoMeta?: { duration_seconds?: number },
+    videoMeta?: { duration_seconds?: number; fps?: number },
   ) {
     // Mirror loadFromDisk's modern-format parse: {promptId}__{mode}__{origFilename}.
     let promptId = "";
@@ -570,6 +571,7 @@ class GalleryStore {
       gallery_filename: galleryFilename,
       generated_at_ms: Date.now(),
       duration_seconds: videoMeta?.duration_seconds,
+      fps: videoMeta?.fps,
     };
     this.images = [entry, ...this.images];
     // Pull in the embedded metadata (artist detection etc.) in the background.
@@ -934,6 +936,7 @@ class GalleryStore {
             file_size_bytes: entry.size_bytes,
             generated_at_ms: entry.modified_ms,
             duration_seconds: entry.duration_seconds,
+            fps: entry.fps,
           });
         } catch (e) {
           console.error(`Failed to parse gallery entry ${filename}:`, e);
@@ -1244,7 +1247,7 @@ class GalleryStore {
   /** Copy a gallery image file to clipboard (as file reference). */
   async copyToClipboard(image: OutputImage) {
     if (isVideoImage(image)) {
-      this.showToast(locale.t("gallery.toast.copy_video_unsupported"), "error");
+      await this.copyVideoToClipboard(image);
       return;
     }
     this.showToast(locale.t("gallery.toast.copying"), "info", true);
@@ -1371,6 +1374,37 @@ class GalleryStore {
       this.showToast(locale.t("gallery.toast.copied"), "success");
     } catch (e) {
       console.error("Failed to copy to clipboard:", e);
+      this.showToast(locale.t("gallery.toast.failed_copy"), "error");
+    }
+  }
+
+  /**
+   * Copy a gallery video to the clipboard as a file reference.
+   *
+   * Nothing here decodes or re-encodes: an mp4 goes on the clipboard the same
+   * way a file manager puts one there, so pasting into a chat client or a
+   * folder yields the original file, audio included.
+   *
+   * Browser mode has no equivalent - the clipboard lives on the server, not on
+   * the machine looking at the page - so it keeps the unsupported toast.
+   */
+  private async copyVideoToClipboard(image: OutputImage) {
+    if (isBrowserMode) {
+      this.showToast(locale.t("gallery.toast.copy_video_unsupported"), "error");
+      return;
+    }
+    this.showToast(locale.t("gallery.toast.copying"), "info", true);
+    try {
+      const videoFilename = await this.resolveGalleryFilename(image);
+      if (!videoFilename) {
+        this.showToast(locale.t("gallery.toast.not_saved_yet"), "info");
+        return;
+      }
+      const path = await getGalleryImagePath(videoFilename);
+      await copyFileToClipboard(path);
+      this.showToast(locale.t("gallery.toast.copied"), "success");
+    } catch (e) {
+      console.error("Failed to copy video to clipboard:", e);
       this.showToast(locale.t("gallery.toast.failed_copy"), "error");
     }
   }

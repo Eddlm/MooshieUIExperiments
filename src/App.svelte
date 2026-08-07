@@ -45,6 +45,7 @@
   import { lazyThumbnail } from "./lib/utils/lazyThumbnail.js";
   import ContextMenu from "./lib/components/ui/ContextMenu.svelte";
   import type { ContextMenuItem } from "./lib/components/ui/ContextMenu.svelte";
+  import VideoPlayer from "./lib/components/video/VideoPlayer.svelte";
   import InterrogateModal from "./lib/components/generation/InterrogateModal.svelte";
   import ExternalComfyModal from "./lib/components/ExternalComfyModal.svelte";
   import PhotopeaEditor from "./lib/components/PhotopeaEditor.svelte";
@@ -2543,14 +2544,18 @@
 
         const durationSeconds =
           typeof data.duration_seconds === "number" ? data.duration_seconds : undefined;
+        const videoFps = typeof data.fps === "number" && data.fps > 0 ? data.fps : undefined;
 
         await gallery.addPersistedImage(videoFilename, {
           duration_seconds: durationSeconds,
+          fps: videoFps,
         });
 
         // Play it in the progress preview. The gallery URL is Range-served, so
         // the preview never buffers the whole clip.
         progress.lastOutputVideo = await gallery.loadFullImage(videoFilename);
+        progress.lastOutputVideoFps = videoFps ?? null;
+        progress.lastOutputVideoFilename = videoFilename;
       }),
       ipcListen("comfyui:executing", async (event: any) => {
         const data = event.payload;
@@ -3519,9 +3524,11 @@
         </button>
       {/if}
 
-      <!-- Action buttons -->
+      <!-- Action buttons. For a video the player owns the bottom of the frame,
+           so this bar sits above the player's control chrome (~90px tall)
+           instead of on top of it. -->
       {#if gallery.selectedImage}
-      <div class="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5 bg-neutral-900/70 backdrop-blur-sm rounded-xl px-2 py-1.5 border border-neutral-700/50">
+      <div class="absolute {gallery.lightboxIsVideo ? 'bottom-28' : 'bottom-6'} left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5 bg-neutral-900/70 backdrop-blur-sm rounded-xl px-2 py-1.5 border border-neutral-700/50">
         {#if !gallery.lightboxIsVideo}
         <!-- Generation group -->
         <button
@@ -3659,23 +3666,16 @@
       {/if}
 
       {#if gallery.lightboxUrl && gallery.lightboxIsVideo}
-        <!-- Video: the native controls own click and drag, so the zoom/pan
-             handlers used for stills are deliberately absent here. The URL is
-             the Range-serving gallery endpoint, so seeking works without ever
-             buffering the whole clip. -->
-        <!-- svelte-ignore a11y_media_has_caption -->
-        <video
+        <!-- The player owns its own chrome, keyboard handling (including the
+             arrow-key stopPropagation that used to live inline here), and
+             export affordances. Zoom and pan stay absent: they are for stills. -->
+        <VideoPlayer
           src={gallery.lightboxUrl}
-          class="max-w-full max-h-[85vh] object-contain"
-          controls
-          autoplay
-          loop
-          playsinline
-          oncontextmenu={openLightboxContextMenu}
-          onkeydown={(e) => {
-            if (e.key === "ArrowLeft" || e.key === "ArrowRight") e.stopPropagation();
-          }}
-        ></video>
+          fps={gallery.selectedImage?.fps ?? 24}
+          density="full"
+          filename={gallery.selectedImage?.gallery_filename}
+          onContextMenu={openLightboxContextMenu}
+        />
       {:else if gallery.lightboxUrl}
         <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
         <img

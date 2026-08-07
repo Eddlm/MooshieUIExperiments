@@ -133,6 +133,9 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .manage(app_state)
         .setup(move |_app| {
+            // Last session's export temp files are dead weight.
+            commands::video_export::sweep_export_temp_dir();
+
             // Clean up and create temp image directory
             temp_images::init();
 
@@ -566,6 +569,10 @@ pub fn run() {
             setup::reinstall_pytorch,
             setup::get_comfyui_version,
             setup::update_comfyui,
+            commands::video_export::export_video_animation,
+            commands::video_export::probe_video_export,
+            commands::video_export::copy_file_to_clipboard,
+            commands::video_export::copy_file_to,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

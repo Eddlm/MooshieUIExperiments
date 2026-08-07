@@ -52,6 +52,9 @@ pub struct GalleryImageEntry {
     /// Playback length for `.mp4` entries, read from the gallery index.
     /// `None` for images and for videos the index does not know about.
     pub duration_seconds: Option<f64>,
+    /// Frame rate for `.mp4` entries. `None` for images and for rows that
+    /// predate the `fps` column; the player falls back to 24.
+    pub fps: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1544,7 +1547,7 @@ pub async fn list_gallery_image_entries() -> Result<Vec<GalleryImageEntry>, AppE
     }
 
     // One query for the whole video table, not one per directory entry.
-    let durations = crate::gallery_index::video_durations();
+    let meta = crate::gallery_index::video_meta();
 
     let mut files: Vec<_> = std::fs::read_dir(&dir)?
         .filter_map(|entry| {
@@ -1561,13 +1564,14 @@ pub async fn list_gallery_image_entries() -> Result<Vec<GalleryImageEntry>, AppE
                 .ok()?
                 .as_millis() as u64;
 
-            let duration_seconds = durations.get(&name).copied();
+            let entry_meta = meta.get(&name);
 
             Some(GalleryImageEntry {
                 filename: name,
                 size_bytes: metadata.len(),
                 modified_ms,
-                duration_seconds,
+                duration_seconds: entry_meta.map(|m| m.duration_seconds),
+                fps: entry_meta.and_then(|m| m.fps),
             })
         })
         .collect();
@@ -2037,7 +2041,7 @@ fn infer_image_mime(bytes: &[u8], ext_hint: Option<&str>) -> &'static str {
 /// Put a file on the Windows clipboard as a file-drop (like right-click → Copy in Explorer).
 /// Much faster than decoding PNGs and preserves all metadata.
 #[cfg(target_os = "windows")]
-fn clipboard_set_file_drop_win(path: &std::path::Path) -> Result<(), AppError> {
+pub(crate) fn clipboard_set_file_drop_win(path: &std::path::Path) -> Result<(), AppError> {
     let path_str = path.to_string_lossy().into_owned();
     // Guard must stay alive for the write; DoClear empties the clipboard first
     // (the crate's default FileList setter leaves stale formats behind).

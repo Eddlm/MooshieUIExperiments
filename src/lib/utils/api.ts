@@ -1,5 +1,6 @@
 import { ipcInvoke, ipcListen, isBrowserMode, isTauri } from "./ipc.js";
 import { getLogSnapshot } from "./log-buffer.js";
+import type { ExportFormat } from "./videoExport.js";
 import { locale } from "../stores/locale.svelte.js";
 import type {
   AppConfig,
@@ -887,6 +888,81 @@ export async function interrogateImage(imageBase64: string): Promise<Interrogati
 
 export async function interrogateImagePath(path: string): Promise<InterrogationResult> {
   return ipcInvoke("interrogate_image_path", { path });
+}
+
+export interface VideoExportResult {
+  path: string;
+  size_bytes: number;
+  frame_count: number;
+  /** 0-100, measured on the source frames. */
+  seam_delta: number;
+  /** What "auto" resolved to; echoes the request for the other modes. */
+  applied_loop_mode: string;
+  /**
+   * Whether an audio track actually landed in the file. MP4 only, and asking is
+   * not the same as getting: a source without audio degrades to a silent export
+   * rather than failing.
+   */
+  has_audio: boolean;
+}
+
+export interface ExportCapability {
+  available: boolean;
+  reason: string | null;
+  /** Whether this venv's PyAV can encode H.264. Gates the MP4 tab on its own. */
+  mp4: boolean;
+}
+
+export async function exportVideoAnimation(args: {
+  filename: string;
+  format: ExportFormat;
+  fps: number;
+  width: number;
+  quality: number;
+  loopCount: number;
+  loopMode: string;
+  crossfadeFrames: number;
+  keepAudio: boolean;
+}): Promise<VideoExportResult> {
+  return ipcInvoke("export_video_animation", {
+    filename: args.filename,
+    format: args.format,
+    fps: args.fps,
+    width: args.width,
+    quality: args.quality,
+    loopCount: args.loopCount,
+    loopMode: args.loopMode,
+    crossfadeFrames: args.crossfadeFrames,
+    keepAudio: args.keepAudio,
+  });
+}
+
+export async function probeVideoExport(): Promise<ExportCapability> {
+  return ipcInvoke("probe_video_export", {});
+}
+
+export async function copyFileToClipboard(path: string): Promise<void> {
+  return ipcInvoke("copy_file_to_clipboard", { path });
+}
+
+/**
+ * Copy a file produced by the export pipeline to a caller-chosen destination.
+ *
+ * Desktop only: browser mode downloads straight from the export URL instead.
+ * There is deliberately no webserver dispatch arm - this mirrors the reasoning
+ * in copy_gallery_file_to, which is the exact analogue for gallery files.
+ */
+export async function copyFileTo(srcPath: string, destPath: string): Promise<void> {
+  return ipcInvoke("copy_file_to", { srcPath, destPath });
+}
+
+/**
+ * Browser-mode download URL for an export. The encode ran on the server, so the
+ * browser fetches the produced file by basename out of the export temp dir.
+ */
+export function exportDownloadUrl(path: string): string {
+  const name = path.split(/[\\/]/).pop() ?? "";
+  return `/internal-api/_export/${encodeURIComponent(name)}`;
 }
 
 export async function interrogateGalleryImage(filename: string): Promise<InterrogationResult> {
