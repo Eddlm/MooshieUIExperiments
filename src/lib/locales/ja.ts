@@ -1843,6 +1843,8 @@ const ja: Record<string, string> = {
   "artist_gallery.size_label": "サイズ:",
   "artist_gallery.favourites_btn": "お気に入り",
   "artist_gallery.favourites_title": "お気に入りフィルターの切り替え",
+  "artist_gallery.include_no_preview_btn": "プレビューなし",
+  "artist_gallery.include_no_preview_title": "モデルが認識しているが CDN プレビューがまだないアーティストを表示",
   "artist_gallery.manage_btn": "⚙ 管理",
   "artist_gallery.manage_title": "カテゴリの管理、お気に入りのインポート/エクスポート",
   "artist_gallery.category_label": "カテゴリ:",
@@ -2654,6 +2656,12 @@ const ja: Record<string, string> = {
   "artist_gallery.variant_n": "画像{n}",
 
   "artist_gallery.flip_variant_aria": "画像バリエーションを切り替え",
+  "artist_gallery.generate_preview_btn": "⚡ 生成",
+  "artist_gallery.generate_preview_running": "生成中…",
+  "artist_gallery.generate_preview_title": "CDN プレビューと同じパラメータでこのプレビューをローカル生成します",
+  "artist_gallery.generate_preview_missing": "不足しているモデル: {models}",
+  "artist_gallery.preview_queued": "{tag} のプレビューをキューに追加しました",
+  "artist_gallery.preview_failed": "プレビューの生成に失敗しました: {error}",
 
   "artist_gallery.lightbox.flip": "⇄ 画像{n}",
 

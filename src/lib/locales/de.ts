@@ -1838,6 +1838,8 @@ const de: Record<string, string> = {
   "artist_gallery.size_label": "Größe:",
   "artist_gallery.favourites_btn": "Favoriten",
   "artist_gallery.favourites_title": "Favoritenfilter ein-/ausblenden",
+  "artist_gallery.include_no_preview_btn": "Ohne Vorschau",
+  "artist_gallery.include_no_preview_title": "Künstler anzeigen, die das Modell kennt, für die es aber noch keine CDN-Vorschau gibt",
   "artist_gallery.manage_btn": "⚙ Verwalten",
   "artist_gallery.manage_title": "Kategorien verwalten, Favoriten importieren/exportieren",
   "artist_gallery.category_label": "Kategorie:",
@@ -2632,6 +2634,12 @@ const de: Record<string, string> = {
   "artist_gallery.variant_n": "Bild {n}",
 
   "artist_gallery.flip_variant_aria": "Bildvariante wechseln",
+  "artist_gallery.generate_preview_btn": "⚡ Erzeugen",
+  "artist_gallery.generate_preview_running": "Wird erzeugt…",
+  "artist_gallery.generate_preview_title": "Diese Vorschau lokal mit denselben Parametern wie die CDN-Vorschauen erzeugen",
+  "artist_gallery.generate_preview_missing": "Fehlende Modelle: {models}",
+  "artist_gallery.preview_queued": "Vorschau für {tag} in der Warteschlange",
+  "artist_gallery.preview_failed": "Vorschau-Erzeugung fehlgeschlagen: {error}",
 
   "artist_gallery.lightbox.flip": "⇄ Bild {n}",
 

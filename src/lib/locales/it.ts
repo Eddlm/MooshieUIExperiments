@@ -1818,6 +1818,8 @@ const it: Record<string, string> = {
   "artist_gallery.size_label": "Dimensione:",
   "artist_gallery.favourites_btn": "Preferiti",
   "artist_gallery.favourites_title": "Attiva/disattiva filtro preferiti",
+  "artist_gallery.include_no_preview_btn": "Senza anteprima",
+  "artist_gallery.include_no_preview_title": "Mostra gli artisti noti al modello che non hanno ancora un'anteprima CDN",
   "artist_gallery.manage_btn": "⚙ Gestisci",
   "artist_gallery.manage_title": "Gestisci categorie, importa/esporta preferiti",
   "artist_gallery.category_label": "Categoria:",
@@ -2629,6 +2631,12 @@ const it: Record<string, string> = {
   "artist_gallery.variant_n": "Immagine {n}",
 
   "artist_gallery.flip_variant_aria": "Cambia variante immagine",
+  "artist_gallery.generate_preview_btn": "⚡ Genera",
+  "artist_gallery.generate_preview_running": "Generazione…",
+  "artist_gallery.generate_preview_title": "Genera questa anteprima in locale con gli stessi parametri delle anteprime della CDN",
+  "artist_gallery.generate_preview_missing": "Modelli mancanti: {models}",
+  "artist_gallery.preview_queued": "Anteprima in coda per {tag}",
+  "artist_gallery.preview_failed": "Generazione dell'anteprima non riuscita: {error}",
 
   "artist_gallery.lightbox.flip": "⇄ Immagine {n}",
 

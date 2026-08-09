@@ -1956,6 +1956,8 @@ const en: Record<string, string> = {
   "artist_gallery.size_label": "Size:",
   "artist_gallery.favourites_btn": "Favourites",
   "artist_gallery.favourites_title": "Toggle favourites filter",
+  "artist_gallery.include_no_preview_btn": "No-preview",
+  "artist_gallery.include_no_preview_title": "Show artists the model knows that have no CDN preview yet",
   "artist_gallery.manage_btn": "⚙ Manage",
   "artist_gallery.manage_title": "Manage categories, import/export favourites",
   "artist_gallery.category_label": "Category:",
@@ -1993,6 +1995,12 @@ const en: Record<string, string> = {
   "artist_gallery.variant_label": "Variant",
   "artist_gallery.variant_n": "Image {n}",
   "artist_gallery.flip_variant_aria": "Flip image variant",
+  "artist_gallery.generate_preview_btn": "⚡ Generate",
+  "artist_gallery.generate_preview_running": "Generating…",
+  "artist_gallery.generate_preview_title": "Generate this preview locally with the same parameters the CDN previews used",
+  "artist_gallery.generate_preview_missing": "Missing models: {models}",
+  "artist_gallery.preview_queued": "Preview queued for {tag}",
+  "artist_gallery.preview_failed": "Preview generation failed: {error}",
 
   // Gen params modal
   "artist_gallery.gen_params.title": "Preview Generation Parameters",

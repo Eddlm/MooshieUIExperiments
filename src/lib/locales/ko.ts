@@ -1818,6 +1818,8 @@ const ko: Record<string, string> = {
   "artist_gallery.size_label": "크기:",
   "artist_gallery.favourites_btn": "즐겨찾기",
   "artist_gallery.favourites_title": "즐겨찾기 필터 토글",
+  "artist_gallery.include_no_preview_btn": "미리보기 없음",
+  "artist_gallery.include_no_preview_title": "모델이 알고 있지만 아직 CDN 미리보기가 없는 작가 표시",
   "artist_gallery.manage_btn": "⚙ 관리",
   "artist_gallery.manage_title": "카테고리 관리, 즐겨찾기 가져오기/보내기",
   "artist_gallery.category_label": "카테고리:",
@@ -2629,6 +2631,12 @@ const ko: Record<string, string> = {
   "artist_gallery.variant_n": "이미지 {n}",
 
   "artist_gallery.flip_variant_aria": "이미지 변형 전환",
+  "artist_gallery.generate_preview_btn": "⚡ 생성",
+  "artist_gallery.generate_preview_running": "생성 중…",
+  "artist_gallery.generate_preview_title": "CDN 미리보기와 동일한 매개변수로 이 미리보기를 로컬에서 생성합니다",
+  "artist_gallery.generate_preview_missing": "누락된 모델: {models}",
+  "artist_gallery.preview_queued": "{tag} 미리보기를 대기열에 추가했습니다",
+  "artist_gallery.preview_failed": "미리보기 생성 실패: {error}",
 
   "artist_gallery.lightbox.flip": "⇄ 이미지 {n}",
 

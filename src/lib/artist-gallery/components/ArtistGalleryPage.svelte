@@ -14,6 +14,8 @@
   import { generation } from "../../stores/generation.svelte.js";
   import { gallery } from "../../stores/gallery.svelte.js";
   import { detectArtistsInPrompt } from "../detection.js";
+  import { ARTIST_PREVIEW_RECIPE } from "../previewRecipe.js";
+  import type { ArtistPreviewStatus, ArtistPreviewVariant } from "../previewRecipe.js";
 
   type ExplorerTab = "artists" | "characters";
 
@@ -25,9 +27,13 @@
     oninsertTag?: (tag: string) => void;
     /** Insert character tags into the positive prompt (opens chooser modal). */
     oninsertCharacter?: (character: AnimadexCharacter) => void;
+    /** Kick off a local generation of the CDN recipe for this artist. */
+    ongeneratePreview?: (slug: string, tag: string, variant: ArtistPreviewVariant) => void;
+    /** Current local-preview state for a card. Omitted means no Generate button. */
+    previewStatus?: (slug: string, variant: ArtistPreviewVariant) => ArtistPreviewStatus;
   }
 
-  let { manifestUrl, initialTab = "artists", oninsertTag, oninsertCharacter }: Props = $props();
+  let { manifestUrl, initialTab = "artists", oninsertTag, oninsertCharacter, ongeneratePreview, previewStatus }: Props = $props();
 
   let explorerTab = $state<ExplorerTab>("artists");
   let lastInitialTab = $state<ExplorerTab>("artists");
@@ -100,7 +106,13 @@
         store.allEntriesLoading = true;
         store.allEntriesError = null;
         try {
-          const entries = await store.client.loadSearchIndex();
+          const [indexed, gap] = await Promise.all([
+            store.client.loadSearchIndex(),
+            store.client.loadNoPreviewHits(),
+          ]);
+          // Image-bearing entries first: `uniquenessJitter` is positional, and
+          // the sort below relies on nothing beyond `hasImage`.
+          const entries = [...indexed, ...gap];
           store.allEntries = entries;
           if (store.uniquenessJitter.length !== entries.length) {
             store.uniquenessJitter = generateJitter(entries.length);
@@ -199,16 +211,39 @@
   // ---------------------------------------------------------------------------
   let globalVariant = $derived(store.globalVariant);
 
-  /** Variant count for a hit; defaults to 1 on v1 data. */
-  function variantCountOf(hit: ArtistSearchHit): number {
+  /** Variants the CDN ships for this artist. Cheap; safe to call over allEntries. */
+  function cdnVariantCountOf(hit: ArtistSearchHit): number {
     return Math.max(1, hit.variantCount ?? hit.images?.length ?? 1);
   }
 
+  /** Highest local variant that exists or is being generated (0 = none). */
+  function localPreviewCount(hit: ArtistSearchHit): number {
+    if (!previewStatus) return 0;
+    let n = 0;
+    for (const v of [1, 2] as const) {
+      const st = previewStatus(hit.slug, v);
+      if (st.state === "ready" || st.state === "running") n = v;
+    }
+    return n;
+  }
+
+  function variantCountOf(hit: ArtistSearchHit): number {
+    if (hit.hasImage) return cdnVariantCountOf(hit);
+    // Once a placeholder has a local variant 1, offer the flip so the second
+    // recipe prompt is reachable.
+    return localPreviewCount(hit) >= 1 ? 2 : 1;
+  }
+
+  /** Variant a placeholder's Generate button targets, clamped to what it offers. */
+  function previewVariantOf(hit: ArtistSearchHit): ArtistPreviewVariant {
+    return Math.min(store.resolveVariant(hit.slug), variantCountOf(hit)) >= 2 ? 2 : 1;
+  }
+
   /** True when ANY entry in the dataset exposes >= 2 variants. */
-  const hasVariants = $derived.by(() => allEntries.some((e) => variantCountOf(e) >= 2));
+  const hasVariants = $derived.by(() => allEntries.some((e) => cdnVariantCountOf(e) >= 2));
   /** Largest variant count across the dataset (drives the toolbar toggle). */
   const maxVariants = $derived.by(() =>
-    allEntries.reduce((m, e) => Math.max(m, variantCountOf(e)), 1),
+    allEntries.reduce((m, e) => Math.max(m, cdnVariantCountOf(e)), 1),
   );
 
   function setGlobalVariant(value: number) {
@@ -239,7 +274,11 @@
   }
 
   function thumbUrl(hit: ArtistSearchHit): string {
-    if (!store.manifest || !hit.hasImage) return "";
+    if (!hit.hasImage) {
+      // No CDN image: a locally generated preview is the only candidate.
+      return previewStatus?.(hit.slug, previewVariantOf(hit))?.src ?? "";
+    }
+    if (!store.manifest) return "";
     const count = variantCountOf(hit);
     const variant = Math.min(store.resolveVariant(hit.slug), count);
     const imageId = imageIdForVariant(hit, variant);
@@ -318,6 +357,18 @@
     store.showOnlyFavourites = val;
     store.currentPage = 1;
     animKey++;
+    requestAnimationFrame(() => {
+      scrollContainer?.scrollTo({ top: 0, behavior: "instant" });
+      scrollContainer?.dispatchEvent(new Event("scroll"));
+    });
+  }
+
+  function setIncludeNoPreview(val: boolean) {
+    store.setIncludeNoPreview(val);
+    store.currentPage = 1;
+    animKey++;
+    // Re-run any active search so the typeahead results respect the new filter.
+    void store.setQuery(store.query);
     requestAnimationFrame(() => {
       scrollContainer?.scrollTo({ top: 0, behavior: "instant" });
       scrollContainer?.dispatchEvent(new Event("scroll"));
@@ -427,10 +478,23 @@
   const sortedEntries = $derived.by(() => {
     if (sortField === "uniqueness") {
       const jitter = uniquenessJitter;
-      return [...allEntries]
-        .map((e, i) => ({ e, score: baseUniqueness(rankingPostCount(e)) * (jitter[i] ?? 1) }))
-        .sort((a, b) => b.score - a.score)
-        .map((x) => x.e);
+      const scored: { e: ArtistSearchHit; score: number }[] = [];
+      const placeholders: ArtistSearchHit[] = [];
+      allEntries.forEach((e, i) => {
+        if (e.hasImage) {
+          scored.push({ e, score: baseUniqueness(rankingPostCount(e)) * (jitter[i] ?? 1) });
+        } else {
+          placeholders.push(e);
+        }
+      });
+      scored.sort((a, b) => b.score - a.score);
+      // A card with no image has nothing to look unique about, so placeholders
+      // trail the scored set in plain post-count order instead of being
+      // jittered into the middle of it.
+      placeholders.sort(
+        (a, b) => rankingPostCount(b) - rankingPostCount(a) || a.slug.localeCompare(b.slug),
+      );
+      return [...scored.map((x) => x.e), ...placeholders];
     }
     const dir = sortDir === "asc" ? 1 : -1;
     return [...allEntries].sort((a, b) =>
@@ -449,9 +513,10 @@
     return fav.categoryId === favouriteCategoryFilter;
   }
 
-  const filteredEntries = $derived.by(() =>
-    showOnlyFavourites ? sortedEntries.filter(matchesFavouriteFilter) : sortedEntries,
-  );
+  const filteredEntries = $derived.by(() => {
+    const base = store.includeNoPreview ? sortedEntries : sortedEntries.filter((e) => e.hasImage);
+    return showOnlyFavourites ? base.filter(matchesFavouriteFilter) : base;
+  });
   const totalPages = $derived(Math.max(1, Math.ceil(filteredEntries.length / pageSize)));
   const safePage = $derived(Math.min(currentPage, totalPages));
   const pageEntries = $derived(
@@ -686,6 +751,15 @@
 
         <button
           type="button"
+          class="rounded-lg border px-2 py-1 text-xs transition-colors {store.includeNoPreview ? 'border-indigo-500 bg-indigo-950/50 text-indigo-300' : 'border-neutral-800 bg-neutral-900/50 text-neutral-400 hover:text-neutral-200'}"
+          onclick={() => setIncludeNoPreview(!store.includeNoPreview)}
+          title={locale.t('artist_gallery.include_no_preview_title')}
+        >
+          {store.includeNoPreview ? '◉' : '○'} {locale.t('artist_gallery.include_no_preview_btn')}
+        </button>
+
+        <button
+          type="button"
           class="rounded-lg border px-2 py-1 text-xs transition-colors {showOnlyFavourites ? 'border-red-500 bg-red-950/50 text-red-300' : 'border-neutral-800 bg-neutral-900/50 text-neutral-400 hover:text-neutral-200'}"
           onclick={() => setShowOnlyFavourites(!showOnlyFavourites)}
           title={locale.t('artist_gallery.favourites_title')}
@@ -839,6 +913,25 @@
                   decoding="auto"
                   class="h-full w-full object-cover"
                 />
+              {:else if !hit.hasImage && previewStatus}
+                {@const pv = previewVariantOf(hit)}
+                {@const st = previewStatus(hit.slug, pv)}
+                <div class="flex h-full w-full flex-col items-center justify-center gap-2 p-2 text-center">
+                  <span class="text-xs text-neutral-500">{locale.t('artist_gallery.no_preview')}</span>
+                  <button
+                    type="button"
+                    class="rounded border border-neutral-700 bg-neutral-900/90 px-2 py-1 text-[10px] text-neutral-200 transition-colors hover:border-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
+                    disabled={st.state !== 'idle'}
+                    onclick={(e) => { e.stopPropagation(); ongeneratePreview?.(hit.slug, hit.tag, pv); }}
+                    title={st.state === 'unavailable'
+                      ? locale.t('artist_gallery.generate_preview_missing', { models: (st.missing ?? []).join(', ') })
+                      : locale.t('artist_gallery.generate_preview_title')}
+                  >
+                    {st.state === 'running'
+                      ? locale.t('artist_gallery.generate_preview_running')
+                      : locale.t('artist_gallery.generate_preview_btn')}
+                  </button>
+                </div>
               {:else}
                 <div class="flex h-full w-full items-center justify-center text-xs text-neutral-500">
                   {locale.t('artist_gallery.no_preview')}
@@ -1042,9 +1135,9 @@
           <h3 class="mb-1 font-medium text-neutral-300">{locale.t('artist_gallery.gen_params.model_stack')}</h3>
           <table class="w-full">
             <tbody>
-              <tr><td class="py-0.5 pr-4 text-neutral-500">{locale.t('artist_gallery.gen_params.unet')}</td><td class="text-neutral-200">anima-base-v1.0.safetensors</td></tr>
-              <tr><td class="py-0.5 pr-4 text-neutral-500">{locale.t('artist_gallery.gen_params.text_encoder')}</td><td class="text-neutral-200">qwen_3_06b_base.safetensors (wan)</td></tr>
-              <tr><td class="py-0.5 pr-4 text-neutral-500">{locale.t('artist_gallery.gen_params.vae')}</td><td class="text-neutral-200">qwen_image_vae.safetensors</td></tr>
+              <tr><td class="py-0.5 pr-4 text-neutral-500">{locale.t('artist_gallery.gen_params.unet')}</td><td class="text-neutral-200">{ARTIST_PREVIEW_RECIPE.unet}</td></tr>
+              <tr><td class="py-0.5 pr-4 text-neutral-500">{locale.t('artist_gallery.gen_params.text_encoder')}</td><td class="text-neutral-200">{ARTIST_PREVIEW_RECIPE.textEncoder} ({ARTIST_PREVIEW_RECIPE.clipType})</td></tr>
+              <tr><td class="py-0.5 pr-4 text-neutral-500">{locale.t('artist_gallery.gen_params.vae')}</td><td class="text-neutral-200">{ARTIST_PREVIEW_RECIPE.vae}</td></tr>
             </tbody>
           </table>
         </section>
@@ -1052,13 +1145,13 @@
           <h3 class="mb-1 font-medium text-neutral-300">{locale.t('artist_gallery.gen_params.sampler_section')}</h3>
           <table class="w-full">
             <tbody>
-              <tr><td class="py-0.5 pr-4 text-neutral-500">{locale.t('artist_gallery.gen_params.sampler')}</td><td class="text-neutral-200">er_sde</td></tr>
-              <tr><td class="py-0.5 pr-4 text-neutral-500">{locale.t('artist_gallery.gen_params.scheduler')}</td><td class="text-neutral-200">sgm_uniform</td></tr>
-              <tr><td class="py-0.5 pr-4 text-neutral-500">{locale.t('artist_gallery.gen_params.steps')}</td><td class="text-neutral-200">25</td></tr>
-              <tr><td class="py-0.5 pr-4 text-neutral-500">{locale.t('artist_gallery.gen_params.cfg_scale')}</td><td class="text-neutral-200">4.0</td></tr>
-              <tr><td class="py-0.5 pr-4 text-neutral-500">{locale.t('artist_gallery.gen_params.denoise')}</td><td class="text-neutral-200">1.0</td></tr>
-              <tr><td class="py-0.5 pr-4 text-neutral-500">{locale.t('artist_gallery.gen_params.seed')}</td><td class="text-neutral-200">7243057331061028000</td></tr>
-              <tr><td class="py-0.5 pr-4 text-neutral-500">{locale.t('artist_gallery.gen_params.resolution')}</td><td class="text-neutral-200">896 × 1152</td></tr>
+              <tr><td class="py-0.5 pr-4 text-neutral-500">{locale.t('artist_gallery.gen_params.sampler')}</td><td class="text-neutral-200">{ARTIST_PREVIEW_RECIPE.sampler}</td></tr>
+              <tr><td class="py-0.5 pr-4 text-neutral-500">{locale.t('artist_gallery.gen_params.scheduler')}</td><td class="text-neutral-200">{ARTIST_PREVIEW_RECIPE.scheduler}</td></tr>
+              <tr><td class="py-0.5 pr-4 text-neutral-500">{locale.t('artist_gallery.gen_params.steps')}</td><td class="text-neutral-200">{ARTIST_PREVIEW_RECIPE.steps}</td></tr>
+              <tr><td class="py-0.5 pr-4 text-neutral-500">{locale.t('artist_gallery.gen_params.cfg_scale')}</td><td class="text-neutral-200">{ARTIST_PREVIEW_RECIPE.cfg.toFixed(1)}</td></tr>
+              <tr><td class="py-0.5 pr-4 text-neutral-500">{locale.t('artist_gallery.gen_params.denoise')}</td><td class="text-neutral-200">{ARTIST_PREVIEW_RECIPE.denoise.toFixed(1)}</td></tr>
+              <tr><td class="py-0.5 pr-4 text-neutral-500">{locale.t('artist_gallery.gen_params.seed')}</td><td class="text-neutral-200">{ARTIST_PREVIEW_RECIPE.seed}</td></tr>
+              <tr><td class="py-0.5 pr-4 text-neutral-500">{locale.t('artist_gallery.gen_params.resolution')}</td><td class="text-neutral-200">{ARTIST_PREVIEW_RECIPE.width} × {ARTIST_PREVIEW_RECIPE.height}</td></tr>
             </tbody>
           </table>
         </section>
@@ -1066,23 +1159,27 @@
           <h3 class="mb-1 font-medium text-neutral-300">{locale.t('artist_gallery.gen_params.output')}</h3>
           <table class="w-full">
             <tbody>
-              <tr><td class="py-0.5 pr-4 text-neutral-500">{locale.t('artist_gallery.gen_params.output')}</td><td class="text-neutral-200">AVIF</td></tr>
-              <tr><td class="py-0.5 pr-4 text-neutral-500">{locale.t('artist_gallery.gen_params.delivered_size')}</td><td class="text-neutral-200">720 × 926</td></tr>
-              <tr><td class="py-0.5 pr-4 text-neutral-500">{locale.t('artist_gallery.gen_params.quality')}</td><td class="text-neutral-200">80 (4:2:0)</td></tr>
+              <tr><td class="py-0.5 pr-4 text-neutral-500">{locale.t('artist_gallery.gen_params.output')}</td><td class="text-neutral-200">{ARTIST_PREVIEW_RECIPE.delivery.format}</td></tr>
+              <tr><td class="py-0.5 pr-4 text-neutral-500">{locale.t('artist_gallery.gen_params.delivered_size')}</td><td class="text-neutral-200">{ARTIST_PREVIEW_RECIPE.delivery.width} × {ARTIST_PREVIEW_RECIPE.delivery.height}</td></tr>
+              <tr><td class="py-0.5 pr-4 text-neutral-500">{locale.t('artist_gallery.gen_params.quality')}</td><td class="text-neutral-200">{ARTIST_PREVIEW_RECIPE.delivery.quality}</td></tr>
             </tbody>
           </table>
         </section>
         <section>
           <h3 class="mb-1 font-medium text-neutral-300">{locale.t('artist_gallery.gen_params.positive_1')}</h3>
-          <p class="rounded bg-neutral-800 px-2 py-1.5 font-mono leading-relaxed text-neutral-200"><span class="text-red-400">&#123;artist_tag&#125;</span>, year 2025, newest, masterpiece, best quality, score_9, score_8, highres, safe, 1girl, hatsune miku, straight-on, cowboy shot, school, serafuku, fence, long sleeves, outdoors, hamburger, eating, blue sky, plant</p>
+          {#each [ARTIST_PREVIEW_RECIPE.positivePrompts[0].split('{artist_tag}')] as p1}
+            <p class="rounded bg-neutral-800 px-2 py-1.5 font-mono leading-relaxed text-neutral-200">{p1[0]}<span class="text-red-400">&#123;artist_tag&#125;</span>{p1[1]}</p>
+          {/each}
         </section>
         <section>
           <h3 class="mb-1 font-medium text-neutral-300">{locale.t('artist_gallery.gen_params.positive_2')}</h3>
-          <p class="rounded bg-neutral-800 px-2 py-1.5 font-mono leading-relaxed text-neutral-200"><span class="text-red-400">&#123;artist_tag&#125;</span>, year 2025, newest, masterpiece, best quality, score_9, score_8, highres, safe, 1girl, solo, umbrella, standing, holding umbrella, mouse girl, mouse ears, mouse tail, raincoat, yellow raincoat, rubber boots, yellow footwear, street, rain, raining, cowboy shot, black hair, long hair, blunt bangs, blunt ends, blue eyes, straight-on</p>
+          {#each [ARTIST_PREVIEW_RECIPE.positivePrompts[1].split('{artist_tag}')] as p2}
+            <p class="rounded bg-neutral-800 px-2 py-1.5 font-mono leading-relaxed text-neutral-200">{p2[0]}<span class="text-red-400">&#123;artist_tag&#125;</span>{p2[1]}</p>
+          {/each}
         </section>
         <section>
           <h3 class="mb-1 font-medium text-neutral-300">{locale.t('artist_gallery.gen_params.negative')}</h3>
-          <p class="rounded bg-neutral-800 px-2 py-1.5 font-mono leading-relaxed text-neutral-200">worst quality, low quality, score_1, score_2, score_3, blurry, jpeg artifacts, sepia, sensitive, nsfw, explicit</p>
+          <p class="rounded bg-neutral-800 px-2 py-1.5 font-mono leading-relaxed text-neutral-200">{ARTIST_PREVIEW_RECIPE.negativePrompt}</p>
         </section>
       </div>
     </div>

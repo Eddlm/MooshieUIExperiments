@@ -1859,6 +1859,8 @@ const zh: Record<string, string> = {
   "artist_gallery.size_label": "大小：",
   "artist_gallery.favourites_btn": "收藏",
   "artist_gallery.favourites_title": "切换收藏筛选",
+  "artist_gallery.include_no_preview_btn": "无预览",
+  "artist_gallery.include_no_preview_title": "显示模型认识但 CDN 尚无预览图的画师",
   "artist_gallery.manage_btn": "⚙ 管理",
   "artist_gallery.manage_title": "管理分类，导入/导出收藏",
   "artist_gallery.category_label": "分类：",
@@ -2630,6 +2632,12 @@ const zh: Record<string, string> = {
   "artist_gallery.variant_n": "图片 {n}",
 
   "artist_gallery.flip_variant_aria": "切换图片变体",
+  "artist_gallery.generate_preview_btn": "⚡ 生成",
+  "artist_gallery.generate_preview_running": "生成中…",
+  "artist_gallery.generate_preview_title": "使用与 CDN 预览图相同的参数在本地生成此预览图",
+  "artist_gallery.generate_preview_missing": "缺少模型：{models}",
+  "artist_gallery.preview_queued": "已将 {tag} 的预览图加入队列",
+  "artist_gallery.preview_failed": "预览图生成失败：{error}",
 
   "artist_gallery.lightbox.flip": "⇄ 图片 {n}",
 

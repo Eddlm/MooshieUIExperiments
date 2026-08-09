@@ -1817,6 +1817,8 @@ const pt: Record<string, string> = {
   "artist_gallery.size_label": "Tamanho:",
   "artist_gallery.favourites_btn": "Favoritos",
   "artist_gallery.favourites_title": "Alternar filtro de favoritos",
+  "artist_gallery.include_no_preview_btn": "Sem pré-visualização",
+  "artist_gallery.include_no_preview_title": "Mostrar artistas que o modelo conhece mas que ainda não têm pré-visualização na CDN",
   "artist_gallery.manage_btn": "⚙ Gerir",
   "artist_gallery.manage_title": "Gerir categorias, importar/exportar favoritos",
   "artist_gallery.category_label": "Categoria:",
@@ -2630,6 +2632,12 @@ const pt: Record<string, string> = {
   "artist_gallery.variant_n": "Imagem {n}",
 
   "artist_gallery.flip_variant_aria": "Alternar variante de imagem",
+  "artist_gallery.generate_preview_btn": "⚡ Gerar",
+  "artist_gallery.generate_preview_running": "A gerar…",
+  "artist_gallery.generate_preview_title": "Gerar esta pré-visualização localmente com os mesmos parâmetros das pré-visualizações da CDN",
+  "artist_gallery.generate_preview_missing": "Modelos em falta: {models}",
+  "artist_gallery.preview_queued": "Pré-visualização em fila para {tag}",
+  "artist_gallery.preview_failed": "Falha ao gerar a pré-visualização: {error}",
 
   "artist_gallery.lightbox.flip": "⇄ Imagem {n}",
 

@@ -1818,6 +1818,8 @@ const ru: Record<string, string> = {
   "artist_gallery.size_label": "Размер:",
   "artist_gallery.favourites_btn": "Избранное",
   "artist_gallery.favourites_title": "Переключить фильтр избранного",
+  "artist_gallery.include_no_preview_btn": "Без превью",
+  "artist_gallery.include_no_preview_title": "Показывать художников, известных модели, но пока без превью в CDN",
   "artist_gallery.manage_btn": "⚙ Управление",
   "artist_gallery.manage_title": "Управление категориями, импорт/экспорт избранного",
   "artist_gallery.category_label": "Категория:",
@@ -2629,6 +2631,12 @@ const ru: Record<string, string> = {
   "artist_gallery.variant_n": "Изображение {n}",
 
   "artist_gallery.flip_variant_aria": "Сменить вариант изображения",
+  "artist_gallery.generate_preview_btn": "⚡ Создать",
+  "artist_gallery.generate_preview_running": "Создание…",
+  "artist_gallery.generate_preview_title": "Создать это превью локально с теми же параметрами, что и превью в CDN",
+  "artist_gallery.generate_preview_missing": "Отсутствуют модели: {models}",
+  "artist_gallery.preview_queued": "Превью для {tag} добавлено в очередь",
+  "artist_gallery.preview_failed": "Не удалось создать превью: {error}",
 
   "artist_gallery.lightbox.flip": "⇄ Изображение {n}",
 
