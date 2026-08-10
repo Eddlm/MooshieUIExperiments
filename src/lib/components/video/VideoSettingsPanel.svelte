@@ -45,15 +45,17 @@
     H3_TIERS,
     H3_TURBO_LORA,
     h3Stack,
-    h3StackFiles,
+    h3TierFiles,
     h3TierForDiffusionModel,
   } from "../../utils/h3Models.js";
   import type { H3ModelCategory, H3ModelFile, H3TierId } from "../../utils/h3Models.js";
   import { RIFE_MULTIPLIERS, RIFE_SCALE_FACTORS, interpolatedFps } from "../../utils/rife.js";
   import { scrollCapture } from "../../utils/scrollCapture.js";
-  import type { VideoAspectRatio, VideoVariant } from "../../types/index.js";
+  import type { OutputImage, VideoAspectRatio, VideoVariant } from "../../types/index.js";
   import EditableValue from "../ui/EditableValue.svelte";
   import InfoTip from "../ui/InfoTip.svelte";
+  import GalleryPickerModal from "../gallery/GalleryPickerModal.svelte";
+  import { uploadForVideo, videoReferenceSlotsFree } from "../../utils/galleryActions.js";
 
   /**
    * One upload target. `fl2va` exposes two (first frame / last frame), `ref2va`
@@ -108,6 +110,8 @@
   /** One-shot latch so the auto-resolve only overrides the user's pick once. */
   let tierResolved = $state(false);
   let downloadingStack = $state(false);
+  /** Filename of the single file a per-row button is currently fetching. */
+  let downloadingFile = $state<string | null>(null);
   let stackError = $state<string | null>(null);
 
   let dlEntries = $state<Record<string, DlEntry>>({});
@@ -126,6 +130,10 @@
   let pasteSlot = $state<string | null>(null);
   let uploadError = $state<string | null>(null);
   let dropZone = $state<HTMLElement | null>(null);
+  /** Frame slot key the single-pick modal is currently targeting, or null. */
+  let pickerSlot = $state<string | null>(null);
+  let refPickerOpen = $state(false);
+  const refSlotsFree = $derived(videoReferenceSlotsFree());
 
   const dimensions = $derived(generation.videoDimensions);
 
@@ -199,10 +207,12 @@
   }
 
   const stack = $derived(h3Stack(selectedTier, generation.videoVariant));
-  const stackFiles = $derived(stack ? h3StackFiles(stack) : []);
-  const missingStackFiles = $derived(stackFiles.filter((file) => installedName(file) === null));
-  const stackDownloadBytes = $derived(
-    missingStackFiles.reduce((total, file) => total + file.sizeBytes, 0),
+  const tierFiles = $derived(h3TierFiles(selectedTier));
+  const missingTierFiles = $derived(
+    tierFiles.filter((entry) => installedName(entry.file) === null).map((entry) => entry.file),
+  );
+  const tierDownloadBytes = $derived(
+    missingTierFiles.reduce((total, file) => total + file.sizeBytes, 0),
   );
   /** NVFP4 runs anywhere but is only worth picking on Blackwell. */
   const tierUnderpowered = $derived(
@@ -458,16 +468,31 @@
   }
 
   async function downloadStack() {
-    if (downloadingStack || missingStackFiles.length === 0) return;
+    if (downloadingStack || missingTierFiles.length === 0) return;
     downloadingStack = true;
     stackError = null;
     try {
-      await runDownloads(missingStackFiles);
+      await runDownloads(missingTierFiles);
       applyStack();
     } catch (e) {
       stackError = String(e);
     } finally {
       downloadingStack = false;
+    }
+  }
+
+  /** Fetch one row's file. Same plumbing as the bulk button, one entry deep. */
+  async function downloadOne(file: H3ModelFile) {
+    if (downloadingStack || downloadingFile) return;
+    downloadingFile = file.filename;
+    stackError = null;
+    try {
+      await runDownloads([file]);
+      applyStack();
+    } catch (e) {
+      stackError = String(e);
+    } finally {
+      downloadingFile = null;
     }
   }
 
@@ -674,6 +699,62 @@
     } finally {
       uploadingSlot = null;
     }
+  }
+
+  /**
+   * Put a gallery image into a frame slot. Deliberately mirrors `uploadToSlot`
+   * so the preview thumbnail, aspect match, spinner and error surface behave
+   * identically to a dragged file. `setPreview` takes ownership of the object
+   * URL and revokes whatever it replaces.
+   *
+   * The catch is the one place it diverges: `uploadToSlot` previews the local
+   * file optimistically before uploading, so it has to undo that on failure.
+   * Here nothing is written until the upload succeeds, so a failed pick must
+   * leave whatever the slot already held alone.
+   */
+  async function assignFromGallery(key: string, image: OutputImage) {
+    const slot = findSlot(key);
+    if (!slot) return;
+    uploadError = null;
+    uploadingSlot = key;
+    try {
+      const { name, aspect, previewUrl } = await uploadForVideo(image, "video_frame.png");
+      setPreview(key, previewUrl);
+      slot.assign(name);
+      slot.assignAspect?.(aspect);
+      if (slot.assignAspect && aspect) generation.videoAspectRatio = "auto";
+      generation.saveSettings();
+    } catch (e) {
+      console.error("Failed to assign gallery image to video frame:", e);
+      uploadError = String(e);
+    } finally {
+      uploadingSlot = null;
+    }
+  }
+
+  /** Fill the free reference slots in order from a multi-pick. */
+  async function assignRefsFromGallery(images: OutputImage[]) {
+    uploadError = null;
+    for (const image of images) {
+      const index = generation.videoRefImages.findIndex((slot) => !slot);
+      if (index === -1) break;
+      const key = `ref${index}`;
+      uploadingSlot = key;
+      try {
+        const { name, previewUrl } = await uploadForVideo(image, "video_reference.png");
+        setPreview(key, previewUrl);
+        generation.videoRefImages = generation.videoRefImages.map((current, i) =>
+          i === index ? name : current,
+        );
+      } catch (e) {
+        console.error("Failed to assign gallery image to video reference:", e);
+        uploadError = String(e);
+        break;
+      } finally {
+        uploadingSlot = null;
+      }
+    }
+    generation.saveSettings();
   }
 
   function clearSlot(key: string) {
@@ -928,6 +1009,16 @@
       <p class="text-[11px] text-amber-300">{locale.t("generation.video.ref_required")}</p>
     {/if}
 
+    {#if generation.videoVariant === "ref2va" && refSlotsFree > 0}
+      <button
+        type="button"
+        class="w-full px-3 py-1.5 rounded-lg border border-neutral-700 text-[11px] text-neutral-300 hover:border-indigo-500 hover:text-indigo-300 transition-colors"
+        onclick={() => (refPickerOpen = true)}
+      >
+        {locale.t("generation.video.choose_from_gallery")}
+      </button>
+    {/if}
+
     <div class="grid grid-cols-2 gap-2">
       {#each slots as slot (slot.key)}
         {@const preview = previews[slot.key]}
@@ -990,6 +1081,16 @@
                     }}
                   />
                 </label>
+                <button
+                  type="button"
+                  class="text-indigo-400 hover:text-indigo-300 ml-1"
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    pickerSlot = slot.key;
+                  }}
+                >
+                  {locale.t("generation.video.choose_from_gallery")}
+                </button>
               </p>
             {/if}
             {#if uploadingSlot === slot.key}
@@ -1310,30 +1411,80 @@
       </p>
     {/if}
 
-    {#if missingStackFiles.length === 0}
+    <div class="space-y-1">
+      {#each tierFiles as entry (entry.file.filename)}
+        {@const installed = installedName(entry.file) !== null}
+        <div class="flex items-center gap-2 text-[11px]">
+          <div class="min-w-0 flex-1">
+            <p class="text-neutral-300 truncate">
+              {locale.t(entry.labelKey)}
+              {#if entry.role === generation.videoVariant}
+                <span class="text-indigo-400">({locale.t("generation.video.role_in_use")})</span>
+              {/if}
+            </p>
+            <p class="text-neutral-500 truncate" title={entry.file.filename}>
+              {entry.file.filename}
+            </p>
+          </div>
+          <span class="shrink-0 font-mono text-neutral-500">
+            {locale.formatBytes(entry.file.sizeBytes)}
+          </span>
+          {#if installed}
+            <svg
+              class="w-3.5 h-3.5 shrink-0 text-emerald-400"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              aria-label={locale.t("generation.video.stack_file_installed")}
+              role="img"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="3"
+                d="M5 13l4 4L19 7"
+              />
+            </svg>
+          {:else}
+            <button
+              type="button"
+              onclick={() => downloadOne(entry.file)}
+              disabled={downloadingStack || downloadingFile !== null || turboInstalling}
+              class="shrink-0 px-2 py-1 rounded border border-neutral-700 text-neutral-300 hover:border-indigo-500 hover:text-indigo-300 disabled:opacity-50 disabled:hover:border-neutral-700 disabled:hover:text-neutral-300 transition-colors"
+            >
+              {locale.t("generation.video.stack_download_one")}
+            </button>
+          {/if}
+        </div>
+      {/each}
+    </div>
+
+    {#if missingTierFiles.length === 0}
       <p class="text-[11px] text-neutral-500">{locale.t("generation.video.stack_ready")}</p>
     {:else}
       <p class="text-[11px] text-amber-300">
         {locale.t("generation.video.stack_missing", {
-          count: missingStackFiles.length,
-          size: locale.formatBytes(stackDownloadBytes),
+          count: missingTierFiles.length,
+          total: tierFiles.length,
+          size: locale.formatBytes(tierDownloadBytes),
         })}
       </p>
       <button
         type="button"
         onclick={downloadStack}
-        disabled={downloadingStack || turboInstalling}
+        disabled={downloadingStack || downloadingFile !== null || turboInstalling}
         class="w-full px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:hover:bg-indigo-600 text-sm text-white transition-colors"
       >
         {downloadingStack
           ? locale.t("generation.video.stack_downloading")
           : locale.t("generation.video.stack_download", {
-              size: locale.formatBytes(stackDownloadBytes),
+              count: missingTierFiles.length,
+              size: locale.formatBytes(tierDownloadBytes),
             })}
       </button>
     {/if}
 
-    {#if downloadingStack && dlOrder.length > 0}
+    {#if (downloadingStack || downloadingFile !== null) && dlOrder.length > 0}
       {@render downloadRows()}
     {/if}
 
@@ -1344,6 +1495,28 @@
     {/if}
   </div>
 </div>
+
+<GalleryPickerModal
+  open={pickerSlot !== null}
+  title={locale.t("generation.video.pick_for_slot", {
+    slot: findSlot(pickerSlot ?? "")?.label ?? "",
+  })}
+  onselect={(images) => {
+    const key = pickerSlot;
+    const image = images[0];
+    if (key && image) void assignFromGallery(key, image);
+  }}
+  onclose={() => (pickerSlot = null)}
+/>
+
+<GalleryPickerModal
+  open={refPickerOpen}
+  multiple
+  max={refSlotsFree}
+  title={locale.t("generation.video.pick_refs_title")}
+  onselect={(images) => void assignRefsFromGallery(images)}
+  onclose={() => (refPickerOpen = false)}
+/>
 
 {#snippet downloadRows()}
   <div class="space-y-1.5">
