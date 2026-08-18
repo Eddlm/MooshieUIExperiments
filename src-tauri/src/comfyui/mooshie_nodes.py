@@ -86,6 +86,45 @@ class MooshieSigmaScheduler:
         return (torch.cat((remapped, positive.new_zeros(1))),)
 
 
+class MooshieSamplerSelect:
+    """Build a sampler with stochastic options where ComfyUI supports them."""
+
+    _STOCHASTIC_SAMPLERS = {
+        "euler_ancestral",
+        "euler_ancestral_cfg_pp",
+        "dpm_2_ancestral",
+        "dpmpp_2s_ancestral",
+        "dpmpp_2s_ancestral_cfg_pp",
+        "dpmpp_sde",
+        "dpmpp_sde_gpu",
+        "dpmpp_2m_sde",
+        "dpmpp_2m_sde_gpu",
+        "dpmpp_2m_sde_heun",
+        "dpmpp_2m_sde_heun_gpu",
+        "dpmpp_3m_sde",
+        "dpmpp_3m_sde_gpu",
+    }
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "sampler_name": (comfy.samplers.KSampler.SAMPLERS,),
+                "eta": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "s_noise": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.01}),
+            }
+        }
+
+    RETURN_TYPES = ("SAMPLER",)
+    FUNCTION = "select"
+    CATEGORY = "mooshie/sampling"
+
+    def select(self, sampler_name, eta, s_noise):
+        if sampler_name in self._STOCHASTIC_SAMPLERS:
+            return (comfy.samplers.ksampler(sampler_name, {"eta": eta, "s_noise": s_noise}),)
+        return (comfy.samplers.sampler_object(sampler_name),)
+
+
 class MooshieFaceDetailer:
     """Detect faces with YOLOv8, crop each to guide_size, re-denoise, composite back."""
 
@@ -1082,6 +1121,7 @@ class MooshieLoadVideoPath:
 
 NODE_CLASS_MAPPINGS = {
     "MooshieSigmaScheduler": MooshieSigmaScheduler,
+    "MooshieSamplerSelect": MooshieSamplerSelect,
     "MooshieFaceDetailer": MooshieFaceDetailer,
     "MooshieSegmentDetailer": MooshieSegmentDetailer,
     "MooshieSaveImage": MooshieSaveImage,
@@ -1093,6 +1133,7 @@ NODE_CLASS_MAPPINGS = {
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "MooshieSigmaScheduler": "Mooshie Sigma Scheduler",
+    "MooshieSamplerSelect": "Mooshie Sampler Select",
     "MooshieFaceDetailer": "Mooshie Face Detailer",
     "MooshieSegmentDetailer": "Mooshie Segment Detailer",
     "MooshieSaveImage": "Mooshie Save Image",

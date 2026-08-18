@@ -125,6 +125,10 @@ export interface GenerationParams {
   custom_sigma_max: number;
   /** Last positive sigma before ComfyUI's terminal zero. */
   custom_sigma_min: number;
+  /** Stochasticity amount for compatible ancestral and SDE samplers. */
+  custom_eta: number;
+  /** Multiplier for noise injected by compatible ancestral and SDE samplers. */
+  custom_s_noise: number;
   /** Decimal string ("-1" = random) — 63-bit seeds exceed JS's safe-integer range. */
   seed: string;
   width: number;

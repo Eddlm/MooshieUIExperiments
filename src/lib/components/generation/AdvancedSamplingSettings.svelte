@@ -58,5 +58,39 @@
       />
       <p class="mt-0.5 text-[10px] text-neutral-500">0.01 — 0.99</p>
     </div>
+
+    <div use:scrollCapture>
+      <label class="flex items-center justify-between text-xs text-neutral-400 mb-1">
+        <span>Eta <InfoTip text="Controls stochasticity for compatible ancestral and SDE samplers. Zero makes them deterministic." /></span>
+        <EditableValue value={generation.customEta} min={0} max={1} step={0.01} decimals={2} onchange={(v) => generation.customEta = v} />
+      </label>
+      <input
+        type="range"
+        bind:value={generation.customEta}
+        min="0"
+        max="1"
+        step="0.01"
+        class="w-full accent-indigo-500"
+      />
+      <p class="mt-0.5 text-[10px] text-neutral-500">0.00 — 1.00</p>
+    </div>
+
+    <div use:scrollCapture>
+      <label class="flex items-center justify-between text-xs text-neutral-400 mb-1">
+        <span>Noise Scale <InfoTip text="Scales the amplitude of noise injected by compatible ancestral and SDE samplers. One is the normal amount." /></span>
+        <EditableValue value={generation.customSNoise} min={0} max={2} step={0.01} decimals={2} onchange={(v) => generation.customSNoise = v} />
+      </label>
+      <input
+        type="range"
+        bind:value={generation.customSNoise}
+        min="0"
+        max="2"
+        step="0.01"
+        class="w-full accent-indigo-500"
+      />
+      <p class="mt-0.5 text-[10px] text-neutral-500">0.00 — 2.00</p>
+    </div>
+
+    <p class="text-[10px] text-neutral-500">Eta and Noise Scale apply to compatible ancestral and DPM++ SDE samplers; other samplers ignore them.</p>
   {/if}
 </div>

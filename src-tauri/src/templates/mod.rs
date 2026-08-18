@@ -258,6 +258,15 @@ pub fn validate_generation_params(params: &GenerationParams) -> Result<(), Strin
                     .into(),
             );
         }
+        if !params.custom_eta.is_finite()
+            || !params.custom_s_noise.is_finite()
+            || !(0.0..=1.0).contains(&params.custom_eta)
+            || !(0.0..=2.0).contains(&params.custom_s_noise)
+        {
+            return Err(
+                "Eta must be between 0 and 1, and Noise Scale must be between 0 and 2.".into(),
+            );
+        }
     }
 
     Ok(())
@@ -613,16 +622,36 @@ fn inject_custom_sigma_sampling(result: &mut WorkflowResult, params: &Generation
 
     // Style transfer and video build their own custom graphs before reaching
     // this common image path. Normal image templates always provide these.
-    let Some(model) = sampler_inputs.get("model") else { return };
-    let Some(positive) = sampler_inputs.get("positive") else { return };
-    let Some(negative) = sampler_inputs.get("negative") else { return };
-    let Some(latent_image) = sampler_inputs.get("latent_image") else { return };
-    let Some(seed) = sampler_inputs.get("seed") else { return };
-    let Some(steps) = sampler_inputs.get("steps") else { return };
-    let Some(cfg) = sampler_inputs.get("cfg") else { return };
-    let Some(sampler_name) = sampler_inputs.get("sampler_name") else { return };
-    let Some(scheduler) = sampler_inputs.get("scheduler") else { return };
-    let Some(denoise) = sampler_inputs.get("denoise") else { return };
+    let Some(model) = sampler_inputs.get("model") else {
+        return;
+    };
+    let Some(positive) = sampler_inputs.get("positive") else {
+        return;
+    };
+    let Some(negative) = sampler_inputs.get("negative") else {
+        return;
+    };
+    let Some(latent_image) = sampler_inputs.get("latent_image") else {
+        return;
+    };
+    let Some(seed) = sampler_inputs.get("seed") else {
+        return;
+    };
+    let Some(steps) = sampler_inputs.get("steps") else {
+        return;
+    };
+    let Some(cfg) = sampler_inputs.get("cfg") else {
+        return;
+    };
+    let Some(sampler_name) = sampler_inputs.get("sampler_name") else {
+        return;
+    };
+    let Some(scheduler) = sampler_inputs.get("scheduler") else {
+        return;
+    };
+    let Some(denoise) = sampler_inputs.get("denoise") else {
+        return;
+    };
 
     let cfg_guider_id = result.next_id.to_string();
     result.next_id += 1;
@@ -643,7 +672,11 @@ fn inject_custom_sigma_sampling(result: &mut WorkflowResult, params: &Generation
     );
     result.workflow.insert(
         sampler_select_id.clone(),
-        json!({ "class_type": "KSamplerSelect", "inputs": { "sampler_name": sampler_name }}),
+        json!({ "class_type": "MooshieSamplerSelect", "inputs": {
+            "sampler_name": sampler_name,
+            "eta": params.custom_eta,
+            "s_noise": params.custom_s_noise
+        }}),
     );
     result.workflow.insert(
         random_noise_id.clone(),
