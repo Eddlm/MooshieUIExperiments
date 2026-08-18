@@ -146,6 +146,13 @@ pub struct GenerationParams {
     pub scheduler: String,
     pub steps: u32,
     pub cfg: f64,
+    /// Replace the primary KSampler with a graph that accepts explicit sigma bounds.
+    #[serde(default)]
+    pub custom_sigmas_enabled: bool,
+    #[serde(default = "default_custom_sigma_max")]
+    pub custom_sigma_max: f64,
+    #[serde(default = "default_custom_sigma_min")]
+    pub custom_sigma_min: f64,
     #[serde(with = "seed_string")]
     pub seed: i64,
     pub width: u32,
@@ -501,6 +508,14 @@ fn default_flux_guidance() -> f32 {
 
 fn default_soft_guidance_multiplier() -> f64 {
     0.4
+}
+
+fn default_custom_sigma_max() -> f64 {
+    15.0
+}
+
+fn default_custom_sigma_min() -> f64 {
+    0.03
 }
 
 fn default_upscale_model_downscale_ratio() -> f64 {

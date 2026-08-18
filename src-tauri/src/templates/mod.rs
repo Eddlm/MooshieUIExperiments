@@ -246,6 +246,20 @@ pub fn validate_generation_params(params: &GenerationParams) -> Result<(), Strin
         }
     }
 
+    if params.custom_sigmas_enabled {
+        if !params.custom_sigma_min.is_finite()
+            || !params.custom_sigma_max.is_finite()
+            || params.custom_sigma_min <= 0.0
+            || params.custom_sigma_max <= 0.0
+            || params.custom_sigma_max < params.custom_sigma_min
+        {
+            return Err(
+                "Custom sigma bounds must be positive, finite values with Noise Start greater than or equal to Noise End."
+                    .into(),
+            );
+        }
+    }
+
     Ok(())
 }
 
@@ -258,7 +272,8 @@ pub struct WorkflowResult {
     pub positive_source: (String, u32),
     pub negative_source: (String, u32),
     pub vae_source: (String, u32),
-    /// The KSampler node ID — needed to rewire positive/negative after ControlNet injection.
+    /// The primary sampler node ID — used to rewire conditioning before the
+    /// optional custom-sigma graph replaces the KSampler.
     pub sampler_id: String,
 }
 
@@ -568,7 +583,122 @@ pub fn build_workflow(
         }
     }
 
+    // This runs after every patch/conditioning injection above, so the custom
+    // graph inherits precisely the model and conditioning a normal KSampler
+    // would have received.
+    inject_custom_sigma_sampling(&mut result, params);
+
     finish_workflow(result, params, seed)
+}
+
+/// Replace the completed primary KSampler with the equivalent decomposed
+/// sampler graph when the user opts into a custom sigma range. All model and
+/// conditioning patches have already been applied before this runs.
+fn inject_custom_sigma_sampling(result: &mut WorkflowResult, params: &GenerationParams) {
+    if !params.custom_sigmas_enabled {
+        return;
+    }
+
+    let old_sampler_id = result.sampler_id.clone();
+    let Some(sampler_inputs) = result
+        .workflow
+        .get(&old_sampler_id)
+        .and_then(|node| node.get("inputs"))
+        .and_then(Value::as_object)
+        .cloned()
+    else {
+        log::warn!("Custom sigmas requested but primary sampler inputs were unavailable");
+        return;
+    };
+
+    // Style transfer and video build their own custom graphs before reaching
+    // this common image path. Normal image templates always provide these.
+    let Some(model) = sampler_inputs.get("model") else { return };
+    let Some(positive) = sampler_inputs.get("positive") else { return };
+    let Some(negative) = sampler_inputs.get("negative") else { return };
+    let Some(latent_image) = sampler_inputs.get("latent_image") else { return };
+    let Some(seed) = sampler_inputs.get("seed") else { return };
+    let Some(steps) = sampler_inputs.get("steps") else { return };
+    let Some(cfg) = sampler_inputs.get("cfg") else { return };
+    let Some(sampler_name) = sampler_inputs.get("sampler_name") else { return };
+    let Some(scheduler) = sampler_inputs.get("scheduler") else { return };
+    let Some(denoise) = sampler_inputs.get("denoise") else { return };
+
+    let cfg_guider_id = result.next_id.to_string();
+    result.next_id += 1;
+    let sampler_select_id = result.next_id.to_string();
+    result.next_id += 1;
+    let random_noise_id = result.next_id.to_string();
+    result.next_id += 1;
+    let sigma_scheduler_id = result.next_id.to_string();
+    result.next_id += 1;
+    let custom_sampler_id = result.next_id.to_string();
+    result.next_id += 1;
+
+    result.workflow.insert(
+        cfg_guider_id.clone(),
+        json!({ "class_type": "CFGGuider", "inputs": {
+            "model": model, "positive": positive, "negative": negative, "cfg": cfg
+        }}),
+    );
+    result.workflow.insert(
+        sampler_select_id.clone(),
+        json!({ "class_type": "KSamplerSelect", "inputs": { "sampler_name": sampler_name }}),
+    );
+    result.workflow.insert(
+        random_noise_id.clone(),
+        json!({ "class_type": "RandomNoise", "inputs": {
+            "noise_seed": seed, "control_after_generate": "fixed"
+        }}),
+    );
+    result.workflow.insert(
+        sigma_scheduler_id.clone(),
+        json!({ "class_type": "MooshieSigmaScheduler", "inputs": {
+            "model": model, "scheduler": scheduler, "steps": steps, "denoise": denoise,
+            "sigma_min": params.custom_sigma_min, "sigma_max": params.custom_sigma_max
+        }}),
+    );
+    result.workflow.insert(
+        custom_sampler_id.clone(),
+        json!({ "class_type": "SamplerCustomAdvanced", "inputs": {
+            "noise": [random_noise_id, 0], "guider": [cfg_guider_id, 0],
+            "sampler": [sampler_select_id, 0], "sigmas": [sigma_scheduler_id, 0],
+            "latent_image": latent_image
+        }}),
+    );
+
+    // Update downstream VAE decode links so they consume the custom sampler's
+    // latent output rather than the removed KSampler.
+    for node in result.workflow.values_mut() {
+        replace_node_output_references(node, &old_sampler_id, &custom_sampler_id);
+    }
+    result.workflow.remove(&old_sampler_id);
+    result.sampler_id = custom_sampler_id;
+}
+
+/// Update links of the form [old_node_id, 0] without touching ordinary string
+/// values or links to other output slots.
+fn replace_node_output_references(value: &mut Value, old_node_id: &str, new_node_id: &str) {
+    match value {
+        Value::Array(items) => {
+            if items.len() == 2
+                && items[0].as_str() == Some(old_node_id)
+                && items[1].as_u64() == Some(0)
+            {
+                items[0] = Value::String(new_node_id.to_string());
+            } else {
+                for item in items {
+                    replace_node_output_references(item, old_node_id, new_node_id);
+                }
+            }
+        }
+        Value::Object(object) => {
+            for item in object.values_mut() {
+                replace_node_output_references(item, old_node_id, new_node_id);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn finish_workflow(mut result: WorkflowResult, params: &GenerationParams, seed: i64) -> Value {

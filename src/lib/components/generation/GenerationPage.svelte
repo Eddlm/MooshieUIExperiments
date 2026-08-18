@@ -8,6 +8,7 @@
   import RegionalPromptModal from "./RegionalPromptModal.svelte";
   import ModelSelector from "./ModelSelector.svelte";
   import SamplerSettings from "./SamplerSettings.svelte";
+  import AdvancedSamplingSettings from "./AdvancedSamplingSettings.svelte";
   import DimensionControls from "./DimensionControls.svelte";
   import GenerateButton from "./GenerateButton.svelte";
   import UpscaleSettings from "./UpscaleSettings.svelte";
@@ -72,6 +73,7 @@
     | "generationSettings"
     | "model"
     | "sampler"
+    | "advancedSampling"
     | "controlnet"
     | "styleTransfer"
     | "facefix"
@@ -113,6 +115,7 @@
     generationSettings: "right",
     model: "right",
     sampler: "right",
+    advancedSampling: "right",
     controlnet: "right",
     styleTransfer: "right",
     facefix: "right",
@@ -142,6 +145,7 @@
     "generationSettings",
     "model",
     "sampler",
+    "advancedSampling",
     "controlnet",
     "styleTransfer",
     "facefix",
@@ -289,6 +293,7 @@
     if (section === "generationSettings") return locale.t('generation.settings.title');
     if (section === "model") return locale.t('generation.model.title');
     if (section === "sampler") return locale.t('generation.sampler.title');
+    if (section === "advancedSampling") return "Advanced Sampling";
     if (section === "facefix") return locale.t('generation.facefix.title');
     if (section === "styleTransfer") return locale.t('generation.style_transfer.title');
     return locale.t('generation.upscale.title');
@@ -307,6 +312,7 @@
     if (section === "generationSettings") return generation.mode === "inpainting";
     if (section === "model") return generation.mode !== "inpainting";
     if (section === "sampler") return generation.mode !== "inpainting";
+    if (section === "advancedSampling") return generation.mode !== "inpainting";
     if (section === "upscaleHistory") return generation.mode !== "inpainting";
     if (section === "facefix") return generation.mode !== "inpainting";
     if (section === "styleTransfer") return generation.isAnima && generation.mode === "txt2img";
@@ -347,6 +353,7 @@
   let controlsSectionOpen = $state(savedCollapse.generationSettings !== false);
   let modelSectionOpen = $state(savedCollapse.model !== false);
   let samplerSectionOpen = $state(savedCollapse.sampler !== false);
+  let advancedSamplingSectionOpen = $state(savedCollapse.advancedSampling !== false);
   let controlnetSectionOpen = $state(savedCollapse.controlnet !== false);
   let styleTransferSectionOpen = $state(savedCollapse.styleTransfer !== false);
   let facefixSectionOpen = $state(savedCollapse.facefix !== false);
@@ -363,6 +370,7 @@
       generationSettings: controlsSectionOpen,
       model: modelSectionOpen,
       sampler: samplerSectionOpen,
+      advancedSampling: advancedSamplingSectionOpen,
       controlnet: controlnetSectionOpen,
       styleTransfer: styleTransferSectionOpen,
       facefix: facefixSectionOpen,
@@ -1899,6 +1907,27 @@
     </div>
   {/snippet}
 
+  {#snippet advancedSamplingSection()}
+    <div bind:this={sectionRefs['advancedSampling']} class="rounded-lg border border-neutral-800 bg-neutral-900/40 transition-[height,opacity] duration-150 {draggingSection === 'advancedSampling' ? 'h-0 overflow-hidden opacity-0 m-0! p-0! border-0!' : 'opacity-100'}">
+      <div class="flex items-stretch w-full rounded-t-lg transition-colors hover:bg-neutral-800/50">
+        {@render dragHandle("advancedSampling")}
+        <button
+          class="flex-1 px-3 py-2 flex items-center justify-between text-xs text-neutral-300 hover:text-neutral-100 transition-colors"
+          onclick={() => (advancedSamplingSectionOpen = !advancedSamplingSectionOpen)}
+          title={advancedSamplingSectionOpen ? "Collapse Advanced Sampling" : "Expand Advanced Sampling"}
+        >
+          <span class="font-medium">Advanced Sampling</span>
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 transition-transform {advancedSamplingSectionOpen ? '' : '-rotate-90'}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+      </div>
+      {#if advancedSamplingSectionOpen}
+        <div class="px-3 pb-2 pt-0.5 space-y-3">
+          <AdvancedSamplingSettings />
+        </div>
+      {/if}
+    </div>
+  {/snippet}
+
   {#snippet controlnetSection()}
     <div bind:this={sectionRefs['controlnet']} class="rounded-lg border border-neutral-800 bg-neutral-900/40 transition-[height,opacity] duration-150 {draggingSection === 'controlnet' ? 'h-0 overflow-hidden opacity-0 m-0! p-0! border-0!' : 'opacity-100'}">
       <div class="flex items-stretch w-full rounded-t-lg transition-colors hover:bg-neutral-800/50">
@@ -2068,6 +2097,8 @@
       {@render modelSection()}
     {:else if section === "sampler"}
       {@render samplerSection()}
+    {:else if section === "advancedSampling"}
+      {@render advancedSamplingSection()}
     {:else if section === "controlnet"}
       {@render controlnetSection()}
     {:else if section === "styleTransfer"}

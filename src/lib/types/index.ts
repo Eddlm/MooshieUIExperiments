@@ -119,6 +119,12 @@ export interface GenerationParams {
   scheduler: string;
   steps: number;
   cfg: number;
+  /** Use the custom sampler graph with an explicit sigma range. */
+  custom_sigmas_enabled: boolean;
+  /** First positive sigma (the initial noise level). */
+  custom_sigma_max: number;
+  /** Last positive sigma before ComfyUI's terminal zero. */
+  custom_sigma_min: number;
   /** Decimal string ("-1" = random) — 63-bit seeds exceed JS's safe-integer range. */
   seed: string;
   width: number;

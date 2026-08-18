@@ -26,6 +26,66 @@ os.makedirs(_ultralytics_dir, exist_ok=True)
 folder_paths.add_model_folder_path("ultralytics", _ultralytics_dir)
 
 
+class MooshieSigmaScheduler:
+    """Generate the selected native scheduler curve with user-defined endpoints.
+
+    The final zero is deliberately retained: ComfyUI samplers use it as the
+    terminal denoising boundary, while ``sigma_min`` controls the final
+    *positive* sigma immediately before that zero.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "model": ("MODEL",),
+                "scheduler": (comfy.samplers.KSampler.SCHEDULERS,),
+                "steps": ("INT", {"default": 20, "min": 1, "max": 10000}),
+                "denoise": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "sigma_min": ("FLOAT", {"default": 0.03, "min": 0.0001, "max": 5000.0, "step": 0.01}),
+                "sigma_max": ("FLOAT", {"default": 15.0, "min": 0.0001, "max": 5000.0, "step": 0.01}),
+            }
+        }
+
+    RETURN_TYPES = ("SIGMAS",)
+    FUNCTION = "build"
+    CATEGORY = "mooshie/sampling"
+
+    def build(self, model, scheduler, steps, denoise, sigma_min, sigma_max):
+        if sigma_min <= 0 or sigma_max <= 0:
+            raise ValueError("Custom sigma bounds must be greater than zero")
+        if sigma_max < sigma_min:
+            raise ValueError("Noise Start must be greater than or equal to Noise End")
+        if denoise <= 0:
+            return (torch.empty(0, dtype=torch.float32),)
+
+        # This mirrors ComfyUI's BasicScheduler, including img2img's denoise
+        # slicing. Calculate the native curve first, then remap its positive
+        # portion in log-sigma space so its selected spacing remains intact.
+        total_steps = steps if denoise >= 1.0 else int(steps / denoise)
+        model_sampling = model.get_model_object("model_sampling")
+        sigmas = comfy.samplers.calculate_sigmas(model_sampling, scheduler, total_steps).cpu()
+        sigmas = sigmas[-(steps + 1):]
+        if sigmas.numel() <= 1:
+            return (sigmas,)
+
+        positive = sigmas[:-1]
+        if positive.numel() == 1:
+            return (torch.cat((positive.new_tensor([sigma_max]), positive.new_zeros(1))),)
+
+        old_max, old_min = positive[0], positive[-1]
+        if old_max <= 0 or old_min <= 0 or old_max <= old_min:
+            raise RuntimeError("The selected scheduler did not return a descending positive sigma range")
+
+        # Mapping in log space preserves the scheduler's relative noise curve
+        # better than changing only the two endpoint values.
+        position = (positive.log() - old_min.log()) / (old_max.log() - old_min.log())
+        new_min = positive.new_tensor(sigma_min).log()
+        new_max = positive.new_tensor(sigma_max).log()
+        remapped = (new_min + position * (new_max - new_min)).exp()
+        return (torch.cat((remapped, positive.new_zeros(1))),)
+
+
 class MooshieFaceDetailer:
     """Detect faces with YOLOv8, crop each to guide_size, re-denoise, composite back."""
 
@@ -1021,6 +1081,7 @@ class MooshieLoadVideoPath:
 
 
 NODE_CLASS_MAPPINGS = {
+    "MooshieSigmaScheduler": MooshieSigmaScheduler,
     "MooshieFaceDetailer": MooshieFaceDetailer,
     "MooshieSegmentDetailer": MooshieSegmentDetailer,
     "MooshieSaveImage": MooshieSaveImage,
@@ -1031,6 +1092,7 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
+    "MooshieSigmaScheduler": "Mooshie Sigma Scheduler",
     "MooshieFaceDetailer": "Mooshie Face Detailer",
     "MooshieSegmentDetailer": "Mooshie Segment Detailer",
     "MooshieSaveImage": "Mooshie Save Image",

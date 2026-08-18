@@ -488,6 +488,11 @@ class GenerationStore {
   scheduler = $state("sgm_uniform");
   steps = $state(20);
   cfg = $state(1.4);
+  // Custom-sigma sampler settings. The backend retains the native KSampler
+  // workflow until this opt-in is enabled.
+  customSigmasEnabled = $state(false);
+  customSigmaMax = $state(15.0);
+  customSigmaMin = $state(0.03);
   // Decimal string ("-1" = random): 63-bit seeds exceed JS's safe-integer range.
   seed = $state("-1");
   width = $state(512);
@@ -1874,6 +1879,9 @@ class GenerationStore {
         if (saved.scheduler) this.scheduler = saved.scheduler;
         if (saved.steps) this.steps = saved.steps;
         if (saved.cfg !== undefined) this.cfg = saved.cfg;
+        if (saved.customSigmasEnabled !== undefined) this.customSigmasEnabled = saved.customSigmasEnabled;
+        if (saved.customSigmaMax !== undefined) this.customSigmaMax = saved.customSigmaMax;
+        if (saved.customSigmaMin !== undefined) this.customSigmaMin = saved.customSigmaMin;
         // String(...) coerces seeds persisted as numbers by older versions.
         if (saved.seed !== undefined) this.seed = String(saved.seed);
         if (saved.width) this.width = saved.width;
@@ -2111,6 +2119,9 @@ class GenerationStore {
         scheduler: this.scheduler,
         steps: this.steps,
         cfg: this.cfg,
+        customSigmasEnabled: this.customSigmasEnabled,
+        customSigmaMax: this.customSigmaMax,
+        customSigmaMin: this.customSigmaMin,
         seed: this.seed,
         width: this.width,
         height: this.height,
@@ -2239,6 +2250,9 @@ class GenerationStore {
       scheduler: this.scheduler,
       steps: this.steps,
       cfg: this.cfg,
+      customSigmasEnabled: this.customSigmasEnabled,
+      customSigmaMax: this.customSigmaMax,
+      customSigmaMin: this.customSigmaMin,
       seed: this.seed,
       width: this.width,
       height: this.height,
@@ -2653,6 +2667,9 @@ class GenerationStore {
       scheduler: this.scheduler,
       steps: this.steps,
       cfg: this.cfg,
+      custom_sigmas_enabled: this.customSigmasEnabled,
+      custom_sigma_max: this.customSigmaMax,
+      custom_sigma_min: this.customSigmaMin,
       seed: this.seed,
       width: this.width,
       height: this.height,

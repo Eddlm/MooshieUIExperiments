@@ -177,6 +177,7 @@ pub const MISSING_H3_NATIVE_NODES_MARKER: &str = "Required MiniMax H3 video node
 
 const REQUIRED_MOOSHIE_NODE_CLASSES: &[&str] = &[
     "MooshieSaveImage",
+    "MooshieSigmaScheduler",
     "MooshieSaveVideo",
     "MooshieLoadVideoPath",
     "MooshieFaceDetailer",
