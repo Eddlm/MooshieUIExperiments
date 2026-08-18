@@ -750,6 +750,7 @@ fn finish_workflow(mut result: WorkflowResult, params: &GenerationParams, seed: 
         let output_format = match params.output_format.as_str() {
             "jxl" => "jxl_raw",
             "webp" => "webp_raw",
+            "jpeg" => "jpeg_raw",
             _ => "png",
         };
         result.workflow.insert(
@@ -784,6 +785,7 @@ fn finish_workflow(mut result: WorkflowResult, params: &GenerationParams, seed: 
     let output_format = match params.output_format.as_str() {
         "jxl" => "jxl_raw",
         "webp" => "webp_raw",
+        "jpeg" => "jpeg_raw",
         _ => "png",
     };
     result.workflow.insert(

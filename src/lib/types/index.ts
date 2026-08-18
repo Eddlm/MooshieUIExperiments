@@ -189,7 +189,7 @@ export interface GenerationParams {
   is_sdxl_like?: boolean;
   is_vpred_model?: boolean;
   output_bit_depth: string;
-  /** Storage format for this generation: "png" (default), "jxl", or "webp". */
+  /** Storage format for this generation: "png" (default), "jxl", "webp", or JPEG quality 90. */
   output_format: string;
   /** Anima Untwisting RoPE style transfer (txt2img only). */
   style_transfer_enabled?: boolean;

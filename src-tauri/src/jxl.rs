@@ -92,6 +92,31 @@ pub fn encode_rgba8_png(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>,
     Ok(buf)
 }
 
+/// Encode an 8-bit RGBA image as baseline JPEG at the requested quality.
+/// JPEG does not support alpha, so the opaque RGB channels are retained.
+pub fn encode_rgba8_jpeg(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    quality: u8,
+) -> Result<Vec<u8>, AppError> {
+    let pixels = rgba
+        .chunks_exact(4)
+        .flat_map(|pixel| &pixel[..3])
+        .copied()
+        .collect::<Vec<_>>();
+    if pixels.len() != (width as usize) * (height as usize) * 3 {
+        return Err(AppError::Other(
+            "Invalid RGBA8 dimensions for JPEG encode".into(),
+        ));
+    }
+    let mut buf = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, quality)
+        .encode(&pixels, width, height, image::ExtendedColorType::Rgb8)
+        .map_err(|e| AppError::Other(format!("JPEG encode failed: {}", e)))?;
+    Ok(buf)
+}
+
 /// Encode a 16-bit RGBA image (native-endian `u16` bytes) as a lossless PNG.
 /// Used for Tauri desktop mode where JXL can't be decoded by WebView2.
 pub fn encode_rgba16_png(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, AppError> {

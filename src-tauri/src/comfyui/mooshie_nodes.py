@@ -609,6 +609,7 @@ class MooshieSaveImage:
     FMT_RAW_RGBA8 = 3    # 8-bit RGBA raw pixels  + 8-byte geometry header
     FMT_RAW_RGBA16 = 4   # 16-bit RGBA raw pixels + 8-byte geometry header (native endian)
     FMT_RAW_RGBA8_WEBP = 5  # 8-bit RGBA raw pixels, encoded to lossless WebP in Rust
+    FMT_RAW_RGBA8_JPEG = 6  # 8-bit RGBA raw pixels, encoded to quality-90 JPEG in Rust
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -618,7 +619,7 @@ class MooshieSaveImage:
             },
             "optional": {
                 "bit_depth": (["8bit", "16bit"], {"default": "8bit"}),
-                "output_format": (["png", "jxl_raw", "webp_raw"], {"default": "png"}),
+                "output_format": (["png", "jxl_raw", "webp_raw", "jpeg_raw"], {"default": "png"}),
                 "output_role": (["final", "controlnet_preprocessor"], {"default": "final"}),
             },
         }
@@ -631,17 +632,17 @@ class MooshieSaveImage:
         "Sends images directly over WebSocket instead of writing to disk. "
         "Supports 8/16-bit PNG (default) and raw RGBA (encoded to JPEG XL "
         "in the Tauri backend when output_format=jxl_raw, or lossless WebP "
-        "when output_format=webp_raw)."
+        "when output_format=webp_raw, or quality-90 JPEG when output_format=jpeg_raw)."
     )
 
     def save_images(self, images, bit_depth="8bit", output_format="png", output_role="final"):
         from server import PromptServer
 
         server = PromptServer.instance
-        # WebP is 8-bit only (the container has no 16-bit sample format), so the
-        # raw payload is always packed at 8 bits regardless of the bit_depth input.
+        # WebP and JPEG are 8-bit only, so their raw payloads always use 8 bits.
         want_webp = (output_format == "webp_raw")
-        want_raw = want_webp or (output_format == "jxl_raw")
+        want_jpeg = (output_format == "jpeg_raw")
+        want_raw = want_webp or want_jpeg or (output_format == "jxl_raw")
         event_type = self.MOOSHIE_CONTROLNET_PREPROCESSOR_EVENT_TYPE if output_role == "controlnet_preprocessor" else self.MOOSHIE_EVENT_TYPE
 
         for i in range(images.shape[0]):
@@ -658,9 +659,9 @@ class MooshieSaveImage:
                       "This usually means VRAM was corrupted by rapid generation interrupts. "
                       "Try generating again — the models will be reloaded cleanly.")
 
-            if want_webp:
+            if want_webp or want_jpeg:
                 _, image_bytes = self._encode_raw(frame, "8bit")
-                fmt_tag = self.FMT_RAW_RGBA8_WEBP
+                fmt_tag = self.FMT_RAW_RGBA8_WEBP if want_webp else self.FMT_RAW_RGBA8_JPEG
             elif want_raw:
                 fmt_tag, image_bytes = self._encode_raw(frame, bit_depth)
             elif bit_depth == "16bit":

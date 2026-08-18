@@ -588,8 +588,8 @@ class GenerationStore {
   facefixMaxFaces = $state(8);
   facefixAutoPrompt = $state(false);
   outputBitDepth = $state<"8bit" | "16bit">("8bit");
-  /** WebP is lossless VP8L and always 8-bit (no 16-bit VP8L variant exists). */
-  outputFormat = $state<"png" | "jxl" | "webp">("png");
+  /** WebP and JPEG are always 8-bit. */
+  outputFormat = $state<"png" | "jxl" | "webp" | "jpeg">("png");
   metadataMode = $state<"text_chunk" | "stealth" | "both">("both");
   autoQualityTags = $state(true);
   /** UI-reveal toggle for the custom quality tags editor (values apply based on autoQualityTags). */
@@ -2033,7 +2033,7 @@ class GenerationStore {
         this._mode = savedMode;
         this.applyModeToggleState(this.modeToggles[savedMode] ?? defaultModeToggleState());
         if (saved.outputBitDepth) this.outputBitDepth = saved.outputBitDepth;
-        if (saved.outputFormat === "png" || saved.outputFormat === "jxl" || saved.outputFormat === "webp") this.outputFormat = saved.outputFormat;
+        if (saved.outputFormat === "png" || saved.outputFormat === "jxl" || saved.outputFormat === "webp" || saved.outputFormat === "jpeg") this.outputFormat = saved.outputFormat;
         if (saved.metadataMode) this.metadataMode = saved.metadataMode;
         if (saved.autoQualityTags !== undefined) this.autoQualityTags = saved.autoQualityTags;
         if (saved.customQualityTagsEnabled !== undefined) this.customQualityTagsEnabled = saved.customQualityTagsEnabled;

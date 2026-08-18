@@ -341,8 +341,8 @@ pub struct GenerationParams {
     #[serde(default = "default_output_bit_depth")]
     pub output_bit_depth: String,
     /// Storage format the Rust bridge will produce for this generation.
-    /// "png" (default, backward compatible), "jxl" or "webp" (raw pixels out of
-    /// ComfyUI, encoded to JPEG XL / lossless WebP in the Tauri backend).
+    /// "png" (default, backward compatible), "jxl", "webp", or "jpeg" (raw pixels out of
+    /// ComfyUI, encoded to JPEG XL, lossless WebP, or quality-90 JPEG in the Tauri backend).
     #[serde(default = "default_output_format")]
     pub output_format: String,
     /// Anima Untwisting RoPE training-free style transfer (txt2img only in v1).

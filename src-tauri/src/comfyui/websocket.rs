@@ -30,18 +30,18 @@ fn comfyui_ws_config() -> WebSocketConfig {
 
 /// Result of processing a MOOSHIE_OUTPUT_IMAGE (event_type 100) binary frame.
 struct ProcessedOutputImage {
-    format: &'static str, // "jxl", "webp", or "png"
+    format: &'static str, // "jxl", "webp", "jpeg", or "png"
     ext: &'static str,    // file extension for the canonical image
     bit_depth: u8,
-    image_bytes: Vec<u8>,           // encoded JXL, WebP, or PNG bytes
+    image_bytes: Vec<u8>,           // encoded JXL, WebP, JPEG, or PNG bytes
     display_bytes: Option<Vec<u8>>, // WebP or PNG display copy (for JXL only)
     display_format: &'static str,   // "webp", "png", or "none"
     encode_ms: u64,
 }
 
 /// Decode a MOOSHIE_OUTPUT_IMAGE binary frame (event_type 100) and, for raw RGBA
-/// payloads (format_tags 3/4/5), encode to JXL + a WebP/PNG display copy, or to
-/// lossless WebP directly (tag 5).
+/// payloads (format_tags 3/4/5/6), encode to JXL + a WebP/PNG display copy, or to
+/// lossless WebP / quality-90 JPEG directly.
 /// Shared by the Tauri, headless, and multi-GPU WebSocket handlers.
 async fn process_output_image(data: &[u8]) -> Option<ProcessedOutputImage> {
     if data.len() < 8 {
@@ -128,8 +128,8 @@ async fn process_output_image(data: &[u8]) -> Option<ProcessedOutputImage> {
                 disp_fmt,
             )
         }
-        5 => {
-            // Raw 8-bit RGBA pixels destined for lossless WebP. The canonical
+        5 | 6 => {
+            // Raw 8-bit RGBA pixels destined for lossless WebP or quality-90 JPEG. The canonical
             // image is itself browser-displayable, so no separate display copy
             // is produced (unlike JXL, which browsers cannot render).
             if data.len() < 16 {
@@ -144,29 +144,38 @@ async fn process_output_image(data: &[u8]) -> Option<ProcessedOutputImage> {
             // 8-bit for this tag; anything else means a protocol mismatch.
             if channels != 4 || depth != 8 {
                 log::warn!(
-                    "MooshieSaveImage webp header rejected: ch={} depth={}",
+                    "MooshieSaveImage WebP/JPEG header rejected: ch={} depth={}",
                     channels,
                     depth
                 );
                 return None;
             }
             let pixels = data[16..].to_vec();
+            let is_jpeg = format_tag == 6;
             let result = tokio::task::spawn_blocking(move || {
-                crate::jxl::encode_rgba8_webp_from_raw(&pixels, width, height, false)
+                if is_jpeg {
+                    crate::jxl::encode_rgba8_jpeg(&pixels, width, height, 90)
+                } else {
+                    crate::jxl::encode_rgba8_webp_from_raw(&pixels, width, height, false)
+                }
             })
             .await;
             let webp_bytes = match result {
                 Ok(Ok(bytes)) => bytes,
                 Ok(Err(e)) => {
-                    log::error!("WebP encode failed: {}", e);
+                    log::error!("WebP/JPEG encode failed: {}", e);
                     return None;
                 }
                 Err(e) => {
-                    log::error!("WebP encode task panicked: {}", e);
+                    log::error!("WebP/JPEG encode task panicked: {}", e);
                     return None;
                 }
             };
-            ("webp", "webp", 8, webp_bytes, None, "none")
+            if is_jpeg {
+                ("jpeg", "jpg", 8, webp_bytes, None, "none")
+            } else {
+                ("webp", "webp", 8, webp_bytes, None, "none")
+            }
         }
         2 => ("png", "png", 16, data[8..].to_vec(), None, "png"),
         _ => ("png", "png", 8, data[8..].to_vec(), None, "png"),

@@ -1873,6 +1873,15 @@ async fn embed_temp_metadata_handler(
                 }
             }
         }
+        crate::metadata::ImageFormat::Jpeg => {
+            match crate::metadata::embed_jpeg_metadata(&bytes, &metadata) {
+                Ok(b) => (b, "jpg"),
+                Err(e) => {
+                    log::warn!("embed_temp_metadata (JPEG) failed: {}", e);
+                    return (StatusCode::INTERNAL_SERVER_ERROR, e).into_response();
+                }
+            }
+        }
         _ => match crate::metadata::embed_png_metadata(&bytes, &metadata, embed_mode) {
             Ok(b) => (b, "png"),
             Err(e) => {
@@ -6152,6 +6161,7 @@ fn save_to_gallery_in_dir(
     let ext = match detected_format {
         crate::metadata::ImageFormat::Jxl => "jxl",
         crate::metadata::ImageFormat::WebP => "webp",
+        crate::metadata::ImageFormat::Jpeg => "jpg",
         _ => "png",
     };
     let gallery_filename = format!("{}.{}", rendered_base, ext);
@@ -6180,6 +6190,9 @@ fn save_to_gallery_in_dir(
             crate::metadata::ImageFormat::WebP => {
                 crate::metadata::embed_webp_metadata(bytes, meta, embed_mode)
                     .unwrap_or_else(|_| bytes.to_vec())
+            }
+            crate::metadata::ImageFormat::Jpeg => {
+                crate::metadata::embed_jpeg_metadata(bytes, meta).unwrap_or_else(|_| bytes.to_vec())
             }
             crate::metadata::ImageFormat::Mp4 => bytes.to_vec(),
             crate::metadata::ImageFormat::Avif => bytes.to_vec(),

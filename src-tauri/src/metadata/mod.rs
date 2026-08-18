@@ -39,6 +39,7 @@ pub enum ImageFormat {
     Png,
     Jxl,
     WebP,
+    Jpeg,
     Mp4,
     Avif,
     Gif,
@@ -49,6 +50,8 @@ pub enum ImageFormat {
 pub fn detect_format(bytes: &[u8]) -> ImageFormat {
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         ImageFormat::Png
+    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        ImageFormat::Jpeg
     } else if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
         ImageFormat::WebP
     } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
@@ -95,12 +98,80 @@ pub fn read_jxl_metadata(image_bytes: &[u8]) -> Result<Option<HashMap<String, St
     Ok(parse_swarmui_json(xmp.trim()))
 }
 
+/// Embed metadata in a JPEG APP1 EXIF UserComment. The format has no alpha
+/// carrier, so the requested PNG metadata mode is intentionally ignored.
+pub fn embed_jpeg_metadata(
+    image_bytes: &[u8],
+    params: &HashMap<String, String>,
+) -> Result<Vec<u8>, String> {
+    if !image_bytes.starts_with(&[0xFF, 0xD8]) {
+        return Err("Not a JPEG file".to_string());
+    }
+    let exif = build_exif_user_comment_blob(&format_swarmui_json(params));
+    let payload_len = 6 + exif.len(); // "Exif\0\0" plus the TIFF stream.
+    if payload_len > u16::MAX as usize - 2 {
+        return Err("JPEG metadata exceeds the APP1 size limit".to_string());
+    }
+    let mut out = Vec::with_capacity(image_bytes.len() + payload_len + 4);
+    out.extend_from_slice(&image_bytes[..2]);
+    out.extend_from_slice(&[0xFF, 0xE1]);
+    out.extend_from_slice(&((payload_len + 2) as u16).to_be_bytes());
+    out.extend_from_slice(b"Exif\0\0");
+    out.extend_from_slice(&exif);
+    out.extend_from_slice(&image_bytes[2..]);
+    Ok(out)
+}
+
+/// Read the first EXIF APP1 UserComment from a JPEG stream.
+pub fn read_jpeg_metadata(image_bytes: &[u8]) -> Result<Option<HashMap<String, String>>, String> {
+    if !image_bytes.starts_with(&[0xFF, 0xD8]) {
+        return Ok(None);
+    }
+    let mut pos = 2;
+    while pos + 4 <= image_bytes.len() {
+        if image_bytes[pos] != 0xFF {
+            return Ok(None);
+        }
+        while pos < image_bytes.len() && image_bytes[pos] == 0xFF {
+            pos += 1;
+        }
+        let Some(&marker) = image_bytes.get(pos) else {
+            return Ok(None);
+        };
+        pos += 1;
+        // Start of Scan begins entropy-coded data, which has no metadata segments.
+        if marker == 0xDA || marker == 0xD9 {
+            return Ok(None);
+        }
+        // TEM and restart markers carry no length field.
+        if marker == 0x01 || (0xD0..=0xD7).contains(&marker) {
+            continue;
+        }
+        let Some(length_bytes) = image_bytes.get(pos..pos + 2) else {
+            return Ok(None);
+        };
+        let length = u16::from_be_bytes([length_bytes[0], length_bytes[1]]) as usize;
+        if length < 2 || pos + length > image_bytes.len() {
+            return Ok(None);
+        }
+        let payload = &image_bytes[pos + 2..pos + length];
+        if marker == 0xE1 && payload.starts_with(b"Exif\0\0") {
+            if let Some(text) = read_exif_user_comment(payload) {
+                return Ok(parse_swarmui_json(text.trim()));
+            }
+        }
+        pos += length;
+    }
+    Ok(None)
+}
+
 /// Format-aware dispatcher: returns metadata for any container we can read.
 pub fn read_image_metadata(bytes: &[u8]) -> Result<Option<HashMap<String, String>>, String> {
     match detect_format(bytes) {
         ImageFormat::Png => read_png_metadata(bytes),
         ImageFormat::Jxl => read_jxl_metadata(bytes),
         ImageFormat::WebP => read_webp_metadata(bytes),
+        ImageFormat::Jpeg => read_jpeg_metadata(bytes),
         ImageFormat::Mp4 => read_mp4_metadata(bytes),
         ImageFormat::Avif => read_avif_metadata(bytes),
         ImageFormat::Gif => read_gif_metadata(bytes),
@@ -193,7 +264,7 @@ pub fn embed_uuid_for_test(bytes: &[u8], json: &str) -> Vec<u8> {
     isobmff::append_uuid_xmp(bytes, json).expect("test fixture is walkable ISOBMFF")
 }
 
-/// Format-aware dispatcher: embeds metadata into PNG, JXL, or WebP bytes and
+/// Format-aware dispatcher: embeds metadata into PNG, JXL, WebP, or JPEG bytes and
 /// returns the result in the **same** container format, so callers exporting or
 /// copying raw bytes never have to transcode just to attach metadata.
 ///
@@ -208,6 +279,7 @@ pub fn embed_image_metadata(
         ImageFormat::Png => embed_png_metadata(image_bytes, params, mode),
         ImageFormat::Jxl => embed_jxl_metadata(image_bytes, params),
         ImageFormat::WebP => embed_webp_metadata(image_bytes, params, mode),
+        ImageFormat::Jpeg => embed_jpeg_metadata(image_bytes, params),
         ImageFormat::Mp4 => Err("Metadata embedding is not supported for mp4 video".to_string()),
         ImageFormat::Avif => Err("Metadata embedding is not supported for avif".to_string()),
         ImageFormat::Gif => Err("Metadata embedding is not supported for gif".to_string()),
@@ -1567,6 +1639,11 @@ mod tests {
         crate::jxl::encode_rgba8_webp_from_raw(&rgba, width, height, false).unwrap()
     }
 
+    fn make_test_jpeg(width: u32, height: u32) -> Vec<u8> {
+        let rgba = make_test_rgba(width, height);
+        crate::jxl::encode_rgba8_jpeg(&rgba, width, height, 90).unwrap()
+    }
+
     fn test_params() -> HashMap<String, String> {
         let mut params = HashMap::new();
         // Non-Latin text checks the UTF-16 UserComment encoding.
@@ -1591,6 +1668,19 @@ mod tests {
     #[test]
     fn webp_format_detection() {
         assert_eq!(detect_format(&make_test_webp(32, 32)), ImageFormat::WebP);
+    }
+
+    #[test]
+    fn jpeg_exif_round_trip() {
+        let jpeg = make_test_jpeg(64, 48);
+        let params = test_params();
+        let embedded = embed_jpeg_metadata(&jpeg, &params).unwrap();
+
+        assert_eq!(detect_format(&embedded), ImageFormat::Jpeg);
+        let read = read_image_metadata(&embedded).unwrap().expect("metadata");
+        assert_params_match(&read);
+        image::load_from_memory_with_format(&embedded, image::ImageFormat::Jpeg)
+            .expect("metadata-bearing JPEG remains decodable");
     }
 
     #[test]

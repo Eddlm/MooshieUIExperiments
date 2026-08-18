@@ -2645,10 +2645,10 @@
                     console.log("[output_image] no display copy, using displayImage:", url ? "present" : "EMPTY");
                   }
                 } else {
-                  // PNG and WebP are both WebView2-renderable, so the canonical
+                  // PNG, WebP, and JPEG are WebView2-renderable, so the canonical
                   // file doubles as the display copy — no second temp file.
                   const rawBytes = await readTempImage(data.temp_filename);
-                  const mime = data.format === "webp" ? "image/webp" : "image/png";
+                  const mime = data.format === "webp" ? "image/webp" : data.format === "jpeg" ? "image/jpeg" : "image/png";
                   blob = new Blob([new Uint8Array(rawBytes)], { type: mime });
                   url = URL.createObjectURL(blob);
                 }
@@ -2715,7 +2715,7 @@
             // `display_format` only accompanies JXL; a plain WebP output is its
             // own display copy, so fall back to the canonical format.
             const displayMime =
-              data.display_format === "webp" || data.format === "webp" ? "image/webp" : "image/png";
+              data.display_format === "webp" || data.format === "webp" ? "image/webp" : data.format === "jpeg" ? "image/jpeg" : "image/png";
             const displayBlob = new Blob([bytes], { type: displayMime });
             url = URL.createObjectURL(displayBlob);
 
