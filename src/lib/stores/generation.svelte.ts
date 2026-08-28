@@ -494,7 +494,7 @@ class GenerationStore {
   customSigmaMax = $state(15.0);
   customSigmaMin = $state(0.03);
   customEta = $state(1.0);
-  customSNoise = $state(1.0);
+  customSChurn = $state(0.0);
   // Decimal string ("-1" = random): 63-bit seeds exceed JS's safe-integer range.
   seed = $state("-1");
   width = $state(512);
@@ -1885,7 +1885,7 @@ class GenerationStore {
         if (saved.customSigmaMax !== undefined) this.customSigmaMax = saved.customSigmaMax;
         if (saved.customSigmaMin !== undefined) this.customSigmaMin = saved.customSigmaMin;
         if (saved.customEta !== undefined) this.customEta = saved.customEta;
-        if (saved.customSNoise !== undefined) this.customSNoise = saved.customSNoise;
+        if (saved.customSChurn !== undefined) this.customSChurn = saved.customSChurn;
         // String(...) coerces seeds persisted as numbers by older versions.
         if (saved.seed !== undefined) this.seed = String(saved.seed);
         if (saved.width) this.width = saved.width;
@@ -2127,7 +2127,7 @@ class GenerationStore {
         customSigmaMax: this.customSigmaMax,
         customSigmaMin: this.customSigmaMin,
         customEta: this.customEta,
-        customSNoise: this.customSNoise,
+        customSChurn: this.customSChurn,
         seed: this.seed,
         width: this.width,
         height: this.height,
@@ -2260,7 +2260,7 @@ class GenerationStore {
       customSigmaMax: this.customSigmaMax,
       customSigmaMin: this.customSigmaMin,
       customEta: this.customEta,
-      customSNoise: this.customSNoise,
+      customSChurn: this.customSChurn,
       seed: this.seed,
       width: this.width,
       height: this.height,
@@ -2679,7 +2679,7 @@ class GenerationStore {
       custom_sigma_max: this.customSigmaMax,
       custom_sigma_min: this.customSigmaMin,
       custom_eta: this.customEta,
-      custom_s_noise: this.customSNoise,
+      custom_s_churn: this.customSChurn,
       seed: this.seed,
       width: this.width,
       height: this.height,

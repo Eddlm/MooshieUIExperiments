@@ -105,13 +105,21 @@ class MooshieSamplerSelect:
         "dpmpp_3m_sde_gpu",
     }
 
+    # Samplers with Karras-style pre-step churn (s_churn / s_tmin / s_tmax).
+    _CHURN_SAMPLERS = {
+        "euler",
+        "heun",
+        "dpm_2",
+        "heunpp2",
+    }
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
                 "sampler_name": (comfy.samplers.KSampler.SAMPLERS,),
                 "eta": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
-                "s_noise": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.01}),
+                "s_churn": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01}),
             }
         }
 
@@ -119,9 +127,11 @@ class MooshieSamplerSelect:
     FUNCTION = "select"
     CATEGORY = "mooshie/sampling"
 
-    def select(self, sampler_name, eta, s_noise):
+    def select(self, sampler_name, eta, s_churn):
         if sampler_name in self._STOCHASTIC_SAMPLERS:
-            return (comfy.samplers.ksampler(sampler_name, {"eta": eta, "s_noise": s_noise}),)
+            return (comfy.samplers.ksampler(sampler_name, {"eta": eta}),)
+        if sampler_name in self._CHURN_SAMPLERS:
+            return (comfy.samplers.ksampler(sampler_name, {"s_churn": s_churn}),)
         return (comfy.samplers.sampler_object(sampler_name),)
 
 

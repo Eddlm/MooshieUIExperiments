@@ -259,12 +259,12 @@ pub fn validate_generation_params(params: &GenerationParams) -> Result<(), Strin
             );
         }
         if !params.custom_eta.is_finite()
-            || !params.custom_s_noise.is_finite()
+            || !params.custom_s_churn.is_finite()
             || !(0.0..=1.0).contains(&params.custom_eta)
-            || !(0.0..=2.0).contains(&params.custom_s_noise)
+            || !(0.0..=1.0).contains(&params.custom_s_churn)
         {
             return Err(
-                "Eta must be between 0 and 1, and Noise Scale must be between 0 and 2.".into(),
+                "Eta must be between 0 and 1, and Churn must be between 0 and 1.".into(),
             );
         }
     }
@@ -675,7 +675,7 @@ fn inject_custom_sigma_sampling(result: &mut WorkflowResult, params: &Generation
         json!({ "class_type": "MooshieSamplerSelect", "inputs": {
             "sampler_name": sampler_name,
             "eta": params.custom_eta,
-            "s_noise": params.custom_s_noise
+            "s_churn": params.custom_s_churn
         }}),
     );
     result.workflow.insert(
