@@ -495,6 +495,7 @@ class GenerationStore {
   customSigmaMin = $state(0.03);
   customEta = $state(1.0);
   customSChurn = $state(0.0);
+  customRho = $state(7.0);
   // Decimal string ("-1" = random): 63-bit seeds exceed JS's safe-integer range.
   seed = $state("-1");
   width = $state(512);
@@ -1886,6 +1887,7 @@ class GenerationStore {
         if (saved.customSigmaMin !== undefined) this.customSigmaMin = saved.customSigmaMin;
         if (saved.customEta !== undefined) this.customEta = saved.customEta;
         if (saved.customSChurn !== undefined) this.customSChurn = saved.customSChurn;
+        if (saved.customRho !== undefined) this.customRho = saved.customRho;
         // String(...) coerces seeds persisted as numbers by older versions.
         if (saved.seed !== undefined) this.seed = String(saved.seed);
         if (saved.width) this.width = saved.width;
@@ -2128,6 +2130,7 @@ class GenerationStore {
         customSigmaMin: this.customSigmaMin,
         customEta: this.customEta,
         customSChurn: this.customSChurn,
+        customRho: this.customRho,
         seed: this.seed,
         width: this.width,
         height: this.height,
@@ -2261,6 +2264,7 @@ class GenerationStore {
       customSigmaMin: this.customSigmaMin,
       customEta: this.customEta,
       customSChurn: this.customSChurn,
+      customRho: this.customRho,
       seed: this.seed,
       width: this.width,
       height: this.height,
@@ -2680,6 +2684,7 @@ class GenerationStore {
       custom_sigma_min: this.customSigmaMin,
       custom_eta: this.customEta,
       custom_s_churn: this.customSChurn,
+      custom_rho: this.customRho,
       seed: this.seed,
       width: this.width,
       height: this.height,

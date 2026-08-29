@@ -260,11 +260,13 @@ pub fn validate_generation_params(params: &GenerationParams) -> Result<(), Strin
         }
         if !params.custom_eta.is_finite()
             || !params.custom_s_churn.is_finite()
+            || !params.custom_rho.is_finite()
             || !(0.0..=1.0).contains(&params.custom_eta)
-            || !(0.0..=1.0).contains(&params.custom_s_churn)
+            || !(0.0..=3.0).contains(&params.custom_s_churn)
+            || !(1.0..=20.0).contains(&params.custom_rho)
         {
             return Err(
-                "Eta must be between 0 and 1, and Churn must be between 0 and 1.".into(),
+                "Eta must be between 0 and 1, Churn must be between 0 and 3, and Karras Rho must be between 1 and 20.".into(),
             );
         }
     }
@@ -688,7 +690,8 @@ fn inject_custom_sigma_sampling(result: &mut WorkflowResult, params: &Generation
         sigma_scheduler_id.clone(),
         json!({ "class_type": "MooshieSigmaScheduler", "inputs": {
             "model": model, "scheduler": scheduler, "steps": steps, "denoise": denoise,
-            "sigma_min": params.custom_sigma_min, "sigma_max": params.custom_sigma_max
+            "sigma_min": params.custom_sigma_min, "sigma_max": params.custom_sigma_max,
+            "rho": params.custom_rho
         }}),
     );
     result.workflow.insert(

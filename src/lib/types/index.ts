@@ -127,6 +127,7 @@ export interface GenerationParams {
   custom_sigma_min: number;
   /** Stochasticity amount for compatible ancestral and SDE samplers. */
   custom_eta: number;
+  custom_rho: number;
   /** Karras churn amount for euler/heun/dpm_2 style samplers (pre-step noise). */
   custom_s_churn: number;
   /** Decimal string ("-1" = random) — 63-bit seeds exceed JS's safe-integer range. */
