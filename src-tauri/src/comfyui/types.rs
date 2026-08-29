@@ -157,6 +157,8 @@ pub struct GenerationParams {
     pub custom_eta: f64,
     #[serde(default = "default_custom_s_churn")]
     pub custom_s_churn: f64,
+    #[serde(default = "default_custom_rho")]
+    pub custom_rho: f64,
     #[serde(with = "seed_string")]
     pub seed: i64,
     pub width: u32,
@@ -528,6 +530,10 @@ fn default_custom_eta() -> f64 {
 
 fn default_custom_s_churn() -> f64 {
     0.0
+}
+
+fn default_custom_rho() -> f64 {
+    7.0
 }
 
 fn default_upscale_model_downscale_ratio() -> f64 {

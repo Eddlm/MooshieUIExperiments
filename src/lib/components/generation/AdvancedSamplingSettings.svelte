@@ -78,19 +78,35 @@
     <div use:scrollCapture>
       <label class="flex items-center justify-between text-xs text-neutral-400 mb-1">
         <span>Churn <InfoTip text="Karras churn: re-injects noise into the current state before each step for euler, heun and dpm_2. Zero keeps them deterministic." /></span>
-        <EditableValue value={generation.customSChurn} min={0} max={1} step={0.01} decimals={2} onchange={(v) => generation.customSChurn = v} />
+        <EditableValue value={generation.customSChurn} min={0} max={3} step={0.01} decimals={2} onchange={(v) => generation.customSChurn = v} />
       </label>
       <input
         type="range"
         bind:value={generation.customSChurn}
         min="0"
-        max="1"
+        max="3"
         step="0.01"
         class="w-full accent-indigo-500"
       />
-      <p class="mt-0.5 text-[10px] text-neutral-500">0.00 — 1.00</p>
+      <p class="mt-0.5 text-[10px] text-neutral-500">0.00 — 3.00</p>
     </div>
 
-    <p class="text-[10px] text-neutral-500">Eta applies to compatible ancestral and DPM++ SDE samplers; Churn applies to euler, heun and dpm_2. Other samplers ignore them.</p>
+    <div use:scrollCapture>
+      <label class="flex items-center justify-between text-xs text-neutral-400 mb-1">
+        <span>Karras Rho <InfoTip text="Curvature of the karras noise schedule. Lower values spread steps more evenly; higher values concentrate them at high noise. Only affects the karras scheduler." /></span>
+        <EditableValue value={generation.customRho} min={1} max={20} step={0.1} decimals={1} onchange={(v) => generation.customRho = v} />
+      </label>
+      <input
+        type="range"
+        bind:value={generation.customRho}
+        min="1"
+        max="20"
+        step="0.1"
+        class="w-full accent-indigo-500"
+      />
+      <p class="mt-0.5 text-[10px] text-neutral-500">1.0 — 20.0 (default 7)</p>
+    </div>
+
+    <p class="text-[10px] text-neutral-500">Eta applies to compatible ancestral and DPM++ SDE samplers; Churn applies to euler, heun and dpm_2. Rho applies only when the scheduler is karras.</p>
   {/if}
 </div>

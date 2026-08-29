@@ -12,6 +12,7 @@ import numpy as np
 
 import comfy.sample
 import comfy.samplers
+from comfy.k_diffusion.sampling import get_sigmas_karras
 import comfy.sd
 import comfy.utils
 import comfy.model_management
@@ -44,6 +45,7 @@ class MooshieSigmaScheduler:
                 "denoise": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "sigma_min": ("FLOAT", {"default": 0.03, "min": 0.0001, "max": 5000.0, "step": 0.01}),
                 "sigma_max": ("FLOAT", {"default": 15.0, "min": 0.0001, "max": 5000.0, "step": 0.01}),
+                "rho": ("FLOAT", {"default": 7.0, "min": 1.0, "max": 20.0, "step": 0.1}),
             }
         }
 
@@ -51,7 +53,7 @@ class MooshieSigmaScheduler:
     FUNCTION = "build"
     CATEGORY = "mooshie/sampling"
 
-    def build(self, model, scheduler, steps, denoise, sigma_min, sigma_max):
+    def build(self, model, scheduler, steps, denoise, sigma_min, sigma_max, rho=7.0):
         if sigma_min <= 0 or sigma_max <= 0:
             raise ValueError("Custom sigma bounds must be greater than zero")
         if sigma_max < sigma_min:
@@ -64,7 +66,17 @@ class MooshieSigmaScheduler:
         # portion in log-sigma space so its selected spacing remains intact.
         total_steps = steps if denoise >= 1.0 else int(steps / denoise)
         model_sampling = model.get_model_object("model_sampling")
-        sigmas = comfy.samplers.calculate_sigmas(model_sampling, scheduler, total_steps).cpu()
+        if scheduler == "karras":
+            # ComfyUI hardcodes rho=7 in the karras handler; rebuild the ladder
+            # with the user's rho so the curve shape is actually controllable.
+            sigmas = get_sigmas_karras(
+                total_steps,
+                float(model_sampling.sigma_min),
+                float(model_sampling.sigma_max),
+                rho=rho,
+            ).cpu()
+        else:
+            sigmas = comfy.samplers.calculate_sigmas(model_sampling, scheduler, total_steps).cpu()
         sigmas = sigmas[-(steps + 1):]
         if sigmas.numel() <= 1:
             return (sigmas,)
