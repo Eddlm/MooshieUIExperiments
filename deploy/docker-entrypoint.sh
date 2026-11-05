@@ -46,6 +46,23 @@ done
 # Ensure the persistent models directory exists.
 mkdir -p /data/models
 
+# ── Owner defaults ──
+# Seed settings on a fresh volume. Each file is written only when it is absent,
+# so anything changed in the UI wins for the rest of that volume's life.
+# `env:CIVITAI_API_KEY` keeps the CivitAI key in the container environment
+# (passed at launch) rather than storing it on disk.
+if [ -f /app/defaults/config.json ] && [ ! -f /data/config.json ]; then
+    cp /app/defaults/config.json /data/config.json
+    echo "Seeded /data/config.json from the image defaults."
+fi
+
+prefs_dir="/data/users/${MOOSHIEUI_ADMIN_USER:-admin}"
+if [ -f /app/defaults/prefs.json ] && [ ! -f "$prefs_dir/prefs.json" ]; then
+    mkdir -p "$prefs_dir"
+    cp /app/defaults/prefs.json "$prefs_dir/prefs.json"
+    echo "Seeded $prefs_dir/prefs.json from the image defaults."
+fi
+
 # Replace ComfyUI's models/ with a symlink to the persistent volume.
 # This ensures downloaded models survive container recreation.
 # The symlink may have been broken by a volume overlay.

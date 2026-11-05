@@ -195,6 +195,7 @@ COPY --from=frontend /build/dist /app/dist
 # GPU access (--gpus all); on a CPU-only host enhance/compose will fail to load.
 COPY --from=llama /app/ /app/llama/
 COPY --chmod=755 deploy/docker-entrypoint.sh /app/docker-entrypoint.sh
+COPY deploy/defaults/ /app/defaults/
 
 # Create data directory and default config (as the runtime user, so a fresh
 # named volume starts out owned by it).
@@ -203,8 +204,7 @@ COPY --chmod=755 deploy/docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN mkdir -p /data/gallery /data/thumbnails /data/models && \
     rm -rf ${COMFYUI_PATH}/models && \
     ln -s /data/models ${COMFYUI_PATH}/models && \
-    echo '{"comfyui_path":"/opt/comfyui","venv_path":"/opt/comfyui/.venv","auto_start":true,"setup_complete":true,"browser_mode":true,"ui_server_port":3200,"lan_enabled":true,"server_mode":"autolaunch"}' \
-    > /data/config.json
+    cp /app/defaults/config.json /data/config.json
 
 WORKDIR /app
 EXPOSE 3200

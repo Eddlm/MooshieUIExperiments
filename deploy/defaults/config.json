@@ -1,0 +1,12 @@
+{
+  "comfyui_path": "/opt/comfyui",
+  "venv_path": "/opt/comfyui/.venv",
+  "auto_start": true,
+  "setup_complete": true,
+  "browser_mode": true,
+  "ui_server_port": 3200,
+  "lan_enabled": true,
+  "server_mode": "autolaunch",
+  "civitai_api_key": "env:CIVITAI_API_KEY",
+  "output_filename_template": "{date}__{model}__{seed}"
+}
