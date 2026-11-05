@@ -68,6 +68,47 @@ for prefs_user in _admin "${MOOSHIEUI_ADMIN_USER:-admin}"; do
     fi
 done
 
+# ── Optional background model pull ──
+# Mooshie's own downloader does the whole transfer inside one request and stalls
+# partway on large CivitAI files. This pulls the same file with curl instead:
+# `-C -` resumes from whatever is on disk, `--retry-all-errors` retries a dropped
+# connection, and the whole loop runs in the background so the app starts
+# immediately. Driven by:
+#   MOOSHIEUI_PULL_URL    direct download URL (token included)
+#   MOOSHIEUI_PULL_FILE   filename to write under checkpoints/
+#   MOOSHIEUI_PULL_SHA256 optional expected hash, lower or upper case
+if [ -n "$MOOSHIEUI_PULL_URL" ] && [ -n "$MOOSHIEUI_PULL_FILE" ]; then
+    pull_target="/data/models/checkpoints/${MOOSHIEUI_PULL_FILE}"
+    mkdir -p /data/models/checkpoints
+    (
+        attempt=0
+        while [ "$attempt" -lt 200 ]; do
+            if curl -sS -L --retry 100 --retry-delay 5 --retry-all-errors \
+                --connect-timeout 30 -C - -o "$pull_target" "$MOOSHIEUI_PULL_URL" \
+                >> /data/model-pull.log 2>&1; then
+                size=$(stat -c %s "$pull_target" 2>/dev/null || echo 0)
+                echo "pull complete attempt=$attempt size=$size" >> /data/model-pull.log
+                if [ -z "$MOOSHIEUI_PULL_SHA256" ]; then
+                    break
+                fi
+                sum=$(sha256sum "$pull_target" 2>/dev/null | cut -d' ' -f1 | tr 'A-Z' 'a-z')
+                want=$(printf '%s' "$MOOSHIEUI_PULL_SHA256" | tr 'A-Z' 'a-z')
+                if [ "$sum" = "$want" ]; then
+                    echo "pull hash ok" >> /data/model-pull.log
+                    break
+                fi
+                echo "pull hash mismatch (got $sum) - resuming" >> /data/model-pull.log
+            fi
+            attempt=$((attempt + 1))
+            size=$(stat -c %s "$pull_target" 2>/dev/null || echo 0)
+            echo "[pull] attempt=$attempt size=$size"
+            sleep 5
+        done
+        echo "pull loop exited after $attempt attempts" >> /data/model-pull.log
+    ) &
+    echo "Background model pull queued: ${MOOSHIEUI_PULL_FILE}"
+fi
+
 # Replace ComfyUI's models/ with a symlink to the persistent volume.
 # This ensures downloaded models survive container recreation.
 # The symlink may have been broken by a volume overlay.
