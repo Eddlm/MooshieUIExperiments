@@ -56,12 +56,17 @@ if [ -f /app/defaults/config.json ] && [ ! -f /data/config.json ]; then
     echo "Seeded /data/config.json from the image defaults."
 fi
 
-prefs_dir="/data/users/${MOOSHIEUI_ADMIN_USER:-admin}"
-if [ -f /app/defaults/prefs.json ] && [ ! -f "$prefs_dir/prefs.json" ]; then
-    mkdir -p "$prefs_dir"
-    cp /app/defaults/prefs.json "$prefs_dir/prefs.json"
-    echo "Seeded $prefs_dir/prefs.json from the image defaults."
-fi
+# An admin account's prefs live under the shared owner key (`_admin`), not under
+# its username, so seed both: whichever one the server resolves to, the file is
+# already there.
+for prefs_user in _admin "${MOOSHIEUI_ADMIN_USER:-admin}"; do
+    prefs_dir="/data/users/${prefs_user}"
+    if [ -f /app/defaults/prefs.json ] && [ ! -f "$prefs_dir/prefs.json" ]; then
+        mkdir -p "$prefs_dir"
+        cp /app/defaults/prefs.json "$prefs_dir/prefs.json"
+        echo "Seeded $prefs_dir/prefs.json from the image defaults."
+    fi
+done
 
 # Replace ComfyUI's models/ with a symlink to the persistent volume.
 # This ensures downloaded models survive container recreation.
