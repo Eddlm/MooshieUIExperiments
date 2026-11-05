@@ -2699,6 +2699,9 @@ const ja: Record<string, string> = {
   "generation.sampler.format_jxl": "JXL",
 
   "generation.sampler.format_webp": "WebP",
+  "generation.sampler.format_jpeg": "JPEG",
+  "generation.sampler.karras_rho": "Karras Rho",
+  "generation.sampler.karras_rho_tip": "Curvature of the Karras noise schedule — only used when the scheduler is karras. 7.0 is the curve ComfyUI uses by default.",
 
   "gallery.toast.right_click_copy": "画像を右クリックして「画像をコピー」を選択",
   "modelhub.pick_dir.title": "インストールディレクトリを選択",

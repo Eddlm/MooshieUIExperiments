@@ -1082,6 +1082,8 @@ const en: Record<string, string> = {
   "generation.sampler.scheduler": "Scheduler",
   "generation.sampler.scheduler_tip": "Controls how noise is distributed across steps. 'normal' is standard, 'karras' front-loads detail work for sharper results, 'sgm_uniform' spaces steps evenly.",
   "generation.sampler.scheduler_flux2_note": "Flux2 uses a fixed internal scheduler",
+  "generation.sampler.karras_rho": "Karras rho",
+  "generation.sampler.karras_rho_tip": "Curvature of the Karras noise schedule — only used when the scheduler is karras. Lower values spread the steps more evenly, higher values push them toward the noisy end. 7.0 is the curve ComfyUI uses by default.",
   "generation.sampler.steps": "Steps",
   "generation.sampler.steps_tip": "How many denoising iterations to run. More steps = finer detail but slower. 20-30 is a good balance for most samplers. Some (like 'euler') converge fast and don't benefit much beyond 25.",
   "generation.sampler.cfg": "CFG",
@@ -1108,6 +1110,7 @@ const en: Record<string, string> = {
   "generation.sampler.format_jxl": "JXL",
 
   "generation.sampler.format_webp": "WebP",
+  "generation.sampler.format_jpeg": "JPEG",
   "generation.sampler.metadata": "Metadata",
   "generation.sampler.metadata_tip": "How generation parameters are saved into images. 'Text Chunk' is standard PNG metadata (fast, widely supported). 'Stealth Alpha' hides metadata in the alpha channel and can survive social media re-uploads that strip PNG chunks. 'Both' writes to both locations.",
   "generation.sampler.metadata_text": "Txt",

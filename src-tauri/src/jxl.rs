@@ -342,6 +342,38 @@ fn clamp_to_u8(v: f32) -> u8 {
     scaled as u8
 }
 
+/// Quality used for JPEG output. JPEG is the only lossy format here, so the
+/// value is a constant rather than a parameter: the point of the format is a
+/// small pull, not per-image tuning.
+pub const JPEG_QUALITY: u8 = 90;
+
+/// Encode an 8-bit RGBA image as baseline JPEG at `quality`.
+///
+/// JPEG has no alpha channel, so the opaque RGB channels are retained and the
+/// alpha is dropped. The `image` crate's encoder is already compiled in.
+pub fn encode_rgba8_jpeg(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    quality: u8,
+) -> Result<Vec<u8>, AppError> {
+    let pixels = rgba
+        .chunks_exact(4)
+        .flat_map(|pixel| &pixel[..3])
+        .copied()
+        .collect::<Vec<_>>();
+    if pixels.len() != (width as usize) * (height as usize) * 3 {
+        return Err(AppError::Other(
+            "Invalid RGBA8 dimensions for JPEG encode".into(),
+        ));
+    }
+    let mut buf = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, quality)
+        .encode(&pixels, width, height, image::ExtendedColorType::Rgb8)
+        .map_err(|e| AppError::Other(format!("JPEG encode failed: {}", e)))?;
+    Ok(buf)
+}
+
 /// Encode raw RGBA pixels directly to WebP (for WebView2 display).
 ///
 /// `pixels` may be 8-bit (`is_16 = false`) or native-endian (little-endian on

@@ -998,6 +998,8 @@ const es: Record<string, string> = {
   "generation.sampler.scheduler": "Planificador",
   "generation.sampler.scheduler_tip": "Controla cómo se distribuye el ruido entre los pasos. 'normal' es estándar, 'karras' concentra el trabajo de detalle al inicio para resultados más nítidos, 'sgm_uniform' espacia los pasos uniformemente.",
   "generation.sampler.scheduler_flux2_note": "Flux2 utiliza un scheduler interno fijo",
+  "generation.sampler.karras_rho": "Rho de Karras",
+  "generation.sampler.karras_rho_tip": "Curvatura de la curva de ruido de Karras; solo se usa con el scheduler karras. Valores bajos reparten los pasos de forma más uniforme, valores altos los concentran en el extremo ruidoso. 7.0 es la curva que ComfyUI usa por defecto.",
   "generation.sampler.steps": "Pasos",
   "generation.sampler.steps_tip": "Cuántas iteraciones de eliminación de ruido ejecutar. Más pasos = mayor detalle pero más lento. 20-30 es un buen equilibrio para la mayoría de muestreadores.",
   "generation.sampler.cfg": "CFG",
@@ -2743,6 +2745,7 @@ const es: Record<string, string> = {
   "generation.sampler.format_jxl": "JXL",
 
   "generation.sampler.format_webp": "WebP",
+  "generation.sampler.format_jpeg": "JPEG",
   "gallery.toast.right_click_copy": "Clic derecho en la imagen y seleccione «Copiar imagen»",
   "modelhub.pick_dir.title": "Elegir directorio de instalación",
   "modelhub.pick_dir.description": "Selecciona en qué directorio instalar este modelo.",

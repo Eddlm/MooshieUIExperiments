@@ -439,6 +439,11 @@ pub struct GenerationParams {
     /// ComfyUI, encoded to JPEG XL / lossless WebP in the Tauri backend).
     #[serde(default = "default_output_format")]
     pub output_format: String,
+    /// Curvature of the karras noise ladder. Only read when `scheduler` is
+    /// "karras": ComfyUI hardcodes rho 7 there, so any other value rebuilds the
+    /// ladder over the model's own sigma range instead. `None` means stock 7.
+    #[serde(default)]
+    pub karras_rho: Option<f64>,
     /// Anima Untwisting RoPE training-free style transfer (txt2img only in v1).
     #[serde(default)]
     pub style_transfer_enabled: bool,
@@ -610,6 +615,21 @@ pub struct StageContext {
 
 fn default_int8_fast_convrot() -> bool {
     true
+}
+
+impl GenerationParams {
+    /// Curvature of the karras ladder, with the stock value when the client
+    /// omits it (ComfyUI hardcodes 7, so this is "unchanged").
+    pub fn karras_rho_or_default(&self) -> f64 {
+        self.karras_rho.unwrap_or(7.0)
+    }
+
+    /// Whether a non-stock curvature was asked for on the karras scheduler.
+    /// ComfyUI's karras handler cannot be told rho, so this is what decides
+    /// between the plain sampler and an explicit sigma ladder.
+    pub fn karras_rho_active(&self) -> bool {
+        self.scheduler == "karras" && (self.karras_rho_or_default() - 7.0).abs() > 1e-9
+    }
 }
 
 fn default_output_bit_depth() -> String {

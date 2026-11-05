@@ -1743,6 +1743,7 @@ pub fn save_to_gallery_inner(
     let ext = match detected_format {
         crate::metadata::ImageFormat::Jxl => "jxl",
         crate::metadata::ImageFormat::WebP => "webp",
+        crate::metadata::ImageFormat::Jpeg => "jpg",
         _ => "png",
     };
     let cfg = crate::config::load_persisted_config();
@@ -1826,6 +1827,15 @@ pub fn save_to_gallery_inner(
                     Ok(embedded) => embedded,
                     Err(e) => {
                         log::warn!("Failed to embed WebP metadata: {}, saving without", e);
+                        bytes.to_vec()
+                    }
+                }
+            }
+            crate::metadata::ImageFormat::Jpeg => {
+                match crate::metadata::embed_jpeg_metadata(bytes, meta, embed_mode) {
+                    Ok(embedded) => embedded,
+                    Err(e) => {
+                        log::warn!("Failed to embed JPEG metadata: {}, saving without", e);
                         bytes.to_vec()
                     }
                 }

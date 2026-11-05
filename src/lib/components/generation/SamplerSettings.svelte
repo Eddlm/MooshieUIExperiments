@@ -681,6 +681,21 @@
         {#if generation.isFlux2}
           <p class="mt-1 text-[10px] text-neutral-500">{locale.t('generation.sampler.scheduler_flux2_note')}</p>
         {/if}
+        {#if generation.scheduler === "karras"}
+          <label class="flex items-center justify-between text-xs text-neutral-400 mt-2 mb-1">
+            <span>{locale.t('generation.sampler.karras_rho')}<InfoTip text={locale.t('generation.sampler.karras_rho_tip')} /></span>
+            <span class="text-neutral-300">{generation.karrasRho.toFixed(1)}</span>
+          </label>
+          <input
+            type="range"
+            bind:value={generation.karrasRho}
+            min="1"
+            max="20"
+            step="0.1"
+            class="w-full accent-indigo-500"
+          />
+          <p class="mt-0.5 text-[10px] text-neutral-500">1.0 — 20.0 · 7.0 is the stock curve</p>
+        {/if}
       </div>
     {/if}
   </div>
@@ -845,22 +860,24 @@
     <div>
       <label class="block text-xs text-neutral-400 mb-1">{locale.t('generation.sampler.output_format')}<InfoTip text={locale.t('generation.sampler.output_format_tip')} /></label>
       <div class="flex gap-1">
-        {#each ["png", "jxl", "webp"] as fmt}
+        {#each ["png", "jxl", "webp", "jpeg"] as fmt}
           <button
             class="flex-1 py-1 text-[11px] rounded-lg border transition-colors {generation.outputFormat === fmt
               ? 'bg-indigo-600/30 border-indigo-500 text-indigo-300'
               : 'bg-neutral-800/50 border-neutral-700 text-neutral-400 hover:border-neutral-600'}"
             onclick={() => {
-              generation.outputFormat = fmt as "png" | "jxl" | "webp";
-              // Lossless WebP (VP8L) has no 16-bit variant, so keep the pair valid.
-              if (fmt === "webp") generation.outputBitDepth = "8bit";
+              generation.outputFormat = fmt as "png" | "jxl" | "webp" | "jpeg";
+              // Lossless WebP (VP8L) and JPEG are both 8-bit only, so keep the pair valid.
+              if (fmt === "webp" || fmt === "jpeg") generation.outputBitDepth = "8bit";
             }}
           >
             {fmt === "png"
               ? locale.t('generation.sampler.format_png')
               : fmt === "jxl"
                 ? locale.t('generation.sampler.format_jxl')
-                : locale.t('generation.sampler.format_webp')}
+                : fmt === "webp"
+                  ? locale.t('generation.sampler.format_webp')
+                  : locale.t('generation.sampler.format_jpeg')}
           </button>
         {/each}
       </div>

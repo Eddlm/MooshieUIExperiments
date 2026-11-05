@@ -2197,6 +2197,8 @@ async fn export_download_handler(
         "image/gif"
     } else if filename.ends_with(".webp") {
         "image/webp"
+    } else if filename.ends_with(".jpg") || filename.ends_with(".jpeg") {
+        "image/jpeg"
     } else if filename.ends_with(".mp4") {
         "video/mp4"
     } else {
@@ -2444,6 +2446,15 @@ async fn embed_temp_metadata_handler(
                 Ok(b) => (b, "webp"),
                 Err(e) => {
                     log::warn!("embed_temp_metadata (WebP) failed: {}", e);
+                    return (StatusCode::INTERNAL_SERVER_ERROR, e).into_response();
+                }
+            }
+        }
+        crate::metadata::ImageFormat::Jpeg => {
+            match crate::metadata::embed_jpeg_metadata(&bytes, &metadata, embed_mode) {
+                Ok(b) => (b, "jpg"),
+                Err(e) => {
+                    log::warn!("embed_temp_metadata (JPEG) failed: {}", e);
                     return (StatusCode::INTERNAL_SERVER_ERROR, e).into_response();
                 }
             }
@@ -8106,6 +8117,7 @@ pub(crate) fn save_to_gallery_in_dir(
     let ext = match detected_format {
         crate::metadata::ImageFormat::Jxl => "jxl",
         crate::metadata::ImageFormat::WebP => "webp",
+        crate::metadata::ImageFormat::Jpeg => "jpg",
         _ => "png",
     };
 
@@ -8143,6 +8155,10 @@ pub(crate) fn save_to_gallery_in_dir(
             }
             crate::metadata::ImageFormat::WebP => {
                 crate::metadata::embed_webp_metadata(bytes, meta, embed_mode)
+                    .unwrap_or_else(|_| bytes.to_vec())
+            }
+            crate::metadata::ImageFormat::Jpeg => {
+                crate::metadata::embed_jpeg_metadata(bytes, meta, embed_mode)
                     .unwrap_or_else(|_| bytes.to_vec())
             }
             crate::metadata::ImageFormat::Mp4 => bytes.to_vec(),

@@ -1090,6 +1090,9 @@ const pl: Record<string, string> = {
   "generation.sampler.format_jxl": "JXL",
 
   "generation.sampler.format_webp": "WebP",
+  "generation.sampler.format_jpeg": "JPEG",
+  "generation.sampler.karras_rho": "Rho Karras",
+  "generation.sampler.karras_rho_tip": "Curvature of the Karras noise schedule — only used when the scheduler is karras. 7.0 is the curve ComfyUI uses by default.",
   "generation.sampler.metadata": "Metadane",
   "generation.sampler.metadata_tip": "Sposób zapisywania parametrów generowania w obrazach. 'Chunk tekstowy' to standardowe metadane PNG (szybkie, szeroko obsługiwane). 'Stealth Alpha' ukrywa metadane w kanale alfa i może przetrwać przesyłanie do mediów społecznościowych, które usuwa fragmenty PNG. 'Oba' zapisuje w obu lokalizacjach.",
   "generation.sampler.metadata_text": "Txt",

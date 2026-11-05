@@ -2141,7 +2141,13 @@
 
     const created: OutputImage[] = images.map((img, i) => {
       const ext =
-        img.blob.type === "image/jxl" ? "jxl" : img.blob.type === "image/webp" ? "webp" : "png";
+        img.blob.type === "image/jxl"
+          ? "jxl"
+          : img.blob.type === "image/webp"
+            ? "webp"
+            : img.blob.type === "image/jpeg"
+              ? "jpeg"
+              : "png";
       return {
         filename: `${promptId}_${i}.${ext}`,
         subfolder: "",
@@ -3019,7 +3025,12 @@
                   // PNG and WebP are both WebView2-renderable, so the canonical
                   // file doubles as the display copy — no second temp file.
                   const rawBytes = await readTempImage(data.temp_filename);
-                  const mime = data.format === "webp" ? "image/webp" : "image/png";
+                  const mime =
+                    data.format === "webp"
+                      ? "image/webp"
+                      : data.format === "jpeg"
+                        ? "image/jpeg"
+                        : "image/png";
                   blob = new Blob([new Uint8Array(rawBytes)], { type: mime });
                   url = URL.createObjectURL(blob);
                 }

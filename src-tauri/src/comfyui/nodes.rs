@@ -292,6 +292,9 @@ const REQUIRED_MOOSHIE_NODE_CLASSES: &[&str] = &[
     "MooshieAnimaTeaCache",
     "MooshieSigmaTail",
     "MooshieResumeEdit",
+    // A non-stock karras curvature samples through our own SIGMAS node, so a
+    // broken ComfyUI import for it has to fail the same preflight as the rest.
+    "MooshieKarrasSigmas",
 ];
 
 const MOOSHIE_NODES_INIT: &str = include_str!("mooshie_nodes.py");

@@ -235,6 +235,45 @@ pub(crate) async fn process_output_image(data: &[u8]) -> Option<ProcessedOutputI
             };
             ("webp", "webp", 8, webp_bytes, None, "none")
         }
+        6 => {
+            // Raw 8-bit RGBA pixels destined for quality-90 JPEG. JPEG has no
+            // alpha and no 16-bit sample format, so the node always packs
+            // 8-bit; the canonical image is browser-displayable, so no
+            // separate display copy is produced.
+            if data.len() < 16 {
+                log::warn!("MooshieSaveImage raw frame too small: len={}", data.len());
+                return None;
+            }
+            let width = u16::from_be_bytes([data[8], data[9]]) as u32;
+            let height = u16::from_be_bytes([data[10], data[11]]) as u32;
+            let channels = data[12];
+            let depth = data[13];
+            if channels != 4 || depth != 8 {
+                log::warn!(
+                    "MooshieSaveImage jpeg header rejected: ch={} depth={}",
+                    channels,
+                    depth
+                );
+                return None;
+            }
+            let pixels = data[16..].to_vec();
+            let result = tokio::task::spawn_blocking(move || {
+                crate::jxl::encode_rgba8_jpeg(&pixels, width, height, crate::jxl::JPEG_QUALITY)
+            })
+            .await;
+            let jpeg_bytes = match result {
+                Ok(Ok(bytes)) => bytes,
+                Ok(Err(e)) => {
+                    log::error!("JPEG encode failed: {}", e);
+                    return None;
+                }
+                Err(e) => {
+                    log::error!("JPEG encode task panicked: {}", e);
+                    return None;
+                }
+            };
+            ("jpeg", "jpg", 8, jpeg_bytes, None, "none")
+        }
         2 => ("png", "png", 16, data[8..].to_vec(), None, "png"),
         _ => ("png", "png", 8, data[8..].to_vec(), None, "png"),
     };

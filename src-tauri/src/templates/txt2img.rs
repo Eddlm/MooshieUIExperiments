@@ -151,13 +151,39 @@ pub fn build(params: &GenerationParams, seed: i64) -> WorkflowResult {
     // explicit sigma tail. `inject_resume_stage` builds the tail from the
     // patched model and fills in `sigmas`; the placeholder never reaches
     // ComfyUI.
-    let sampler_select_id = if custom_tail {
+    // Karras rho: ComfyUI's karras handler hardcodes rho 7, so a non-stock
+    // curvature has to reach the sampler as an explicit ladder. Same graph
+    // shape as the resume tail above — KSamplerSelect + SamplerCustom — except
+    // the sigmas come from our own node and the noise is added here.
+    let rho_active = params.karras_rho_active();
+
+    let sampler_select_id = if custom_tail || rho_active {
         let id = next_id.to_string();
         workflow.insert(
             id.clone(),
             json!({
                 "class_type": "KSamplerSelect",
                 "inputs": { "sampler_name": params.sampler_name }
+            }),
+        );
+        next_id += 1;
+        Some(id)
+    } else {
+        None
+    };
+
+    let rho_sigmas_id = if rho_active && !custom_tail {
+        let id = next_id.to_string();
+        workflow.insert(
+            id.clone(),
+            json!({
+                "class_type": "MooshieKarrasSigmas",
+                "inputs": {
+                    "model": [model_source.0.clone(), model_source.1],
+                    "steps": params.steps,
+                    "denoise": 1.0,
+                    "rho": params.karras_rho_or_default()
+                }
             }),
         );
         next_id += 1;
@@ -175,11 +201,14 @@ pub fn build(params: &GenerationParams, seed: i64) -> WorkflowResult {
                 "positive": [pos_source.0.clone(), pos_source.1],
                 "negative": [neg_source.0.clone(), neg_source.1],
                 "latent_image": [latent_source.0, latent_source.1],
-                "add_noise": false,
+                "add_noise": rho_sigmas_id.is_some(),
                 "noise_seed": seed,
                 "cfg": params.cfg,
                 "sampler": [select_id, 0],
-                "sigmas": ["0", 0]
+                "sigmas": match &rho_sigmas_id {
+                    Some(id) => json!([id, 0]),
+                    None => json!(["0", 0]),
+                }
             }
         })
     } else if start_step == 0 && end_step.is_none() {

@@ -437,8 +437,10 @@ export interface GenerationParams {
   apg_norm_threshold?: number;
   apg_momentum?: number;
   output_bit_depth: string;
-  /** Storage format for this generation: "png" (default), "jxl", or "webp". */
+  /** Storage format for this generation: "png" (default), "jxl", "webp", or "jpeg". */
   output_format: string;
+  /** Karras ladder curvature; only read when scheduler is "karras". Null = stock 7. */
+  karras_rho?: number | null;
   /** Anima Untwisting RoPE style transfer (txt2img only). */
   style_transfer_enabled?: boolean;
   style_reference_image?: string | null;

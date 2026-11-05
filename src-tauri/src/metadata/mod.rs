@@ -39,6 +39,7 @@ pub enum ImageFormat {
     Png,
     Jxl,
     WebP,
+    Jpeg,
     Mp4,
     Avif,
     Gif,
@@ -49,6 +50,9 @@ pub enum ImageFormat {
 pub fn detect_format(bytes: &[u8]) -> ImageFormat {
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         ImageFormat::Png
+    } else if bytes.len() >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF {
+        // SOI plus the first marker — JPEG has no container magic beyond this.
+        ImageFormat::Jpeg
     } else if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
         ImageFormat::WebP
     } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
@@ -101,6 +105,7 @@ pub fn read_image_metadata(bytes: &[u8]) -> Result<Option<HashMap<String, String
         ImageFormat::Png => read_png_metadata(bytes),
         ImageFormat::Jxl => read_jxl_metadata(bytes),
         ImageFormat::WebP => read_webp_metadata(bytes),
+        ImageFormat::Jpeg => read_jpeg_metadata(bytes),
         ImageFormat::Mp4 => read_mp4_metadata(bytes),
         ImageFormat::Avif => read_avif_metadata(bytes),
         ImageFormat::Gif => read_gif_metadata(bytes),
@@ -407,6 +412,7 @@ pub fn embed_image_metadata(
         ImageFormat::Png => embed_png_metadata(image_bytes, params, mode),
         ImageFormat::Jxl => embed_jxl_metadata(image_bytes, params),
         ImageFormat::WebP => embed_webp_metadata(image_bytes, params, mode),
+        ImageFormat::Jpeg => embed_jpeg_metadata(image_bytes, params, mode),
         ImageFormat::Mp4 => Err("Metadata embedding is not supported for mp4 video".to_string()),
         ImageFormat::Avif => Err("Metadata embedding is not supported for avif".to_string()),
         ImageFormat::Gif => Err("Metadata embedding is not supported for gif".to_string()),
@@ -1319,6 +1325,69 @@ fn get_webp_exif(bytes: &[u8]) -> Option<Vec<u8>> {
         .into_iter()
         .find(|c| &c.id == b"EXIF")
         .map(|c| c.payload)
+}
+
+/// Embed metadata in a JPEG APP1 Exif segment.
+///
+/// JPEG keeps no room for side data, so the blob goes into an APP1 segment
+/// immediately after SOI, carrying the same UserComment the PNG and WebP paths
+/// write — the convention exiftool, CivitAI and the A1111 family already read.
+/// JPEG has no alpha either, so stealth mode has nothing to hide in and falls
+/// back to the text chunk, exactly as WebP does when its encoder refuses.
+pub fn embed_jpeg_metadata(
+    image_bytes: &[u8],
+    params: &HashMap<String, String>,
+    mode: MetadataMode,
+) -> Result<Vec<u8>, String> {
+    if mode == MetadataMode::StealthAlpha {
+        log::info!("JPEG has no alpha channel; writing metadata as an Exif UserComment");
+    }
+    if !image_bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return Err("Not a JPEG file".to_string());
+    }
+    let exif = build_exif_user_comment_blob(&format_swarmui_json(params));
+    // The APP1 length field counts itself plus the payload, after the marker.
+    let payload_len = 6 + exif.len(); // "Exif\0\0" + TIFF stream
+    if payload_len + 2 > 0xFFFF {
+        return Err("JPEG metadata exceeds the APP1 segment limit".to_string());
+    }
+    let mut out = Vec::with_capacity(image_bytes.len() + payload_len + 4);
+    out.extend_from_slice(&image_bytes[..2]); // SOI
+    out.extend_from_slice(&[0xFF, 0xE1]); // APP1
+    out.extend_from_slice(&((payload_len + 2) as u16).to_be_bytes());
+    out.extend_from_slice(b"Exif\0\0");
+    out.extend_from_slice(&exif);
+    out.extend_from_slice(&image_bytes[2..]);
+    Ok(out)
+}
+
+/// Read the first Exif APP1 UserComment from a JPEG stream.
+pub fn read_jpeg_metadata(
+    image_bytes: &[u8],
+) -> Result<Option<HashMap<String, String>>, String> {
+    let mut i = 2; // skip SOI
+    while i + 4 <= image_bytes.len() {
+        if image_bytes[i] != 0xFF {
+            return Ok(None);
+        }
+        let marker = image_bytes[i + 1];
+        // Start of scan: entropy-coded data follows, no more metadata segments.
+        if marker == 0xDA {
+            return Ok(None);
+        }
+        let len = u16::from_be_bytes([image_bytes[i + 2], image_bytes[i + 3]]) as usize;
+        if len < 2 || i + 2 + len > image_bytes.len() {
+            return Ok(None);
+        }
+        let payload = &image_bytes[i + 4..i + 2 + len];
+        if marker == 0xE1 && payload.starts_with(b"Exif\0\0") {
+            if let Some(text) = read_exif_user_comment(&payload[6..]) {
+                return Ok(parse_swarmui_json(text.trim()));
+            }
+        }
+        i += 2 + len;
+    }
+    Ok(None)
 }
 
 /// Build a minimal little-endian EXIF (TIFF) blob whose only tag is the Exif
@@ -2599,6 +2668,32 @@ mod tests {
     #[test]
     fn webp_format_detection() {
         assert_eq!(detect_format(&make_test_webp(32, 32)), ImageFormat::WebP);
+    }
+
+    fn make_test_jpeg(width: u32, height: u32) -> Vec<u8> {
+        let rgba = make_test_rgba(width, height);
+        crate::jxl::encode_rgba8_jpeg(&rgba, width, height, crate::jxl::JPEG_QUALITY).unwrap()
+    }
+
+    #[test]
+    fn jpeg_format_detection() {
+        assert_eq!(detect_format(&make_test_jpeg(32, 32)), ImageFormat::Jpeg);
+    }
+
+    #[test]
+    fn jpeg_exif_round_trip() {
+        let jpeg = make_test_jpeg(64, 48);
+        let params = test_params();
+
+        let embedded = embed_jpeg_metadata(&jpeg, &params, MetadataMode::TextChunk).unwrap();
+
+        assert_eq!(detect_format(&embedded), ImageFormat::Jpeg);
+        // The APP1 segment sits right after SOI, so the stream must stay
+        // decodable — a JPEG that readers reject is worse than no metadata.
+        image::load_from_memory_with_format(&embedded, image::ImageFormat::Jpeg)
+            .expect("metadata-bearing JPEG stays decodable");
+        let read = read_image_metadata(&embedded).unwrap().expect("metadata");
+        assert_params_match(&read);
     }
 
     #[test]

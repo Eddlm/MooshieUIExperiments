@@ -2674,6 +2674,9 @@ const pt: Record<string, string> = {
   "generation.sampler.format_jxl": "JXL",
 
   "generation.sampler.format_webp": "WebP",
+  "generation.sampler.format_jpeg": "JPEG",
+  "generation.sampler.karras_rho": "Rho do Karras",
+  "generation.sampler.karras_rho_tip": "Curvatura do cronograma de ruído Karras — usada apenas quando o scheduler é karras. Valores menores distribuem os passos de forma mais uniforme, valores maiores os empurram para o fim ruidoso. 7.0 é o padrão do ComfyUI.",
   "gallery.toast.right_click_copy": "Clique com o botão direito na imagem e selecione «Copiar imagem»",
   "modelhub.pick_dir.title": "Escolher diretório de instalação",
   "modelhub.pick_dir.description": "Selecione em qual diretório instalar este modelo.",

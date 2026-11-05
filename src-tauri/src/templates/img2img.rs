@@ -121,10 +121,48 @@ pub fn build(params: &GenerationParams, seed: i64) -> WorkflowResult {
         encode_id
     };
 
-    // KSampler with denoise < 1.0
-    let sampler_id = next_id.to_string();
-    workflow.insert(
-        sampler_id.clone(),
+    // KSampler with denoise < 1.0. A non-stock karras curvature cannot ride a
+    // scheduler name, so that case samples an explicit ladder through
+    // SamplerCustom instead — the same shape txt2img uses for its resume tail.
+    let sampler_node = if params.karras_rho_active() {
+        let select_id = next_id.to_string();
+        workflow.insert(
+            select_id.clone(),
+            json!({
+                "class_type": "KSamplerSelect",
+                "inputs": { "sampler_name": params.sampler_name }
+            }),
+        );
+        next_id += 1;
+        let sigmas_id = next_id.to_string();
+        workflow.insert(
+            sigmas_id.clone(),
+            json!({
+                "class_type": "MooshieKarrasSigmas",
+                "inputs": {
+                    "model": [model_source.0.clone(), model_source.1],
+                    "steps": params.steps,
+                    "denoise": params.denoise,
+                    "rho": params.karras_rho_or_default()
+                }
+            }),
+        );
+        next_id += 1;
+        json!({
+            "class_type": "SamplerCustom",
+            "inputs": {
+                "model": [model_source.0.clone(), model_source.1],
+                "positive": [pos_source.0.clone(), pos_source.1],
+                "negative": [neg_source.0.clone(), neg_source.1],
+                "latent_image": [latent_source, 0],
+                "add_noise": true,
+                "noise_seed": seed,
+                "cfg": params.cfg,
+                "sampler": [select_id, 0],
+                "sigmas": [sigmas_id, 0]
+            }
+        })
+    } else {
         json!({
             "class_type": "KSampler",
             "inputs": {
@@ -139,8 +177,13 @@ pub fn build(params: &GenerationParams, seed: i64) -> WorkflowResult {
                 "scheduler": params.scheduler,
                 "denoise": params.denoise
             }
-        }),
-    );
+        })
+    };
+    // Taken after the branch: it allocates the select and sigma nodes first, so
+    // reserving this id beforehand would make the sampler overwrite its own
+    // KSamplerSelect.
+    let sampler_id = next_id.to_string();
+    workflow.insert(sampler_id.clone(), sampler_node);
     next_id += 1;
 
     // VAE Decode — VAEDecodeTiled for Mugen (Flux2VAE SDXL), VAEDecode otherwise
@@ -192,5 +235,28 @@ mod tests {
             "VAEEncode"
         );
         assert!(nodes(&workflow, "RepeatLatentBatch").is_empty());
+    }
+
+    #[test]
+    fn rho_keeps_the_select_node_out_of_the_sampler_slot() {
+        let mut p = params("img2img", "sdxl");
+        p.scheduler = "karras".to_string();
+        p.karras_rho = Some(11.0);
+        let workflow = build(&p);
+
+        // The sampler's inputs must point at the two nodes the branch built. If
+        // the sampler id were reserved before the branch, the KSamplerSelect
+        // would land on the sampler's own key and be overwritten by it — a
+        // workflow that looks fine and samples with no sampler at all.
+        let sampler = single(&workflow, "SamplerCustom");
+        assert_eq!(
+            linked(&workflow, &sampler["inputs"]["sampler"])["class_type"],
+            "KSamplerSelect"
+        );
+        assert_eq!(
+            linked(&workflow, &sampler["inputs"]["sigmas"])["class_type"],
+            "MooshieKarrasSigmas"
+        );
+        assert!(nodes(&workflow, "KSampler").is_empty());
     }
 }

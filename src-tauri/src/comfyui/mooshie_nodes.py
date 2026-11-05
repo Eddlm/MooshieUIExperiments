@@ -12,6 +12,7 @@ import numpy as np
 
 import comfy.sample
 import comfy.samplers
+from comfy.k_diffusion.sampling import get_sigmas_karras
 import comfy.sd
 import comfy.utils
 import comfy.model_management
@@ -510,6 +511,7 @@ class MooshieSaveImage:
     FMT_RAW_RGBA8 = 3    # 8-bit RGBA raw pixels  + 8-byte geometry header
     FMT_RAW_RGBA16 = 4   # 16-bit RGBA raw pixels + 8-byte geometry header (native endian)
     FMT_RAW_RGBA8_WEBP = 5  # 8-bit RGBA raw pixels, encoded to lossless WebP in Rust
+    FMT_RAW_RGBA8_JPEG = 6  # 8-bit RGBA raw pixels, encoded to quality-90 JPEG in Rust
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -519,7 +521,7 @@ class MooshieSaveImage:
             },
             "optional": {
                 "bit_depth": (["8bit", "16bit"], {"default": "8bit"}),
-                "output_format": (["png", "jxl_raw", "webp_raw"], {"default": "png"}),
+                "output_format": (["png", "jxl_raw", "webp_raw", "jpeg_raw"], {"default": "png"}),
                 "output_role": (["final", "controlnet_preprocessor"], {"default": "final"}),
             },
         }
@@ -531,8 +533,9 @@ class MooshieSaveImage:
     DESCRIPTION = (
         "Sends images directly over WebSocket instead of writing to disk. "
         "Supports 8/16-bit PNG (default) and raw RGBA (encoded to JPEG XL "
-        "in the Tauri backend when output_format=jxl_raw, or lossless WebP "
-        "when output_format=webp_raw)."
+        "in the Tauri backend when output_format=jxl_raw, lossless WebP "
+        "when output_format=webp_raw, or quality-90 JPEG when "
+        "output_format=jpeg_raw)."
     )
 
     def save_images(self, images, bit_depth="8bit", output_format="png", output_role="final"):
@@ -542,6 +545,7 @@ class MooshieSaveImage:
         # WebP is 8-bit only (the container has no 16-bit sample format), so the
         # raw payload is always packed at 8 bits regardless of the bit_depth input.
         want_webp = (output_format == "webp_raw")
+        want_jpeg = (output_format == "jpeg_raw")
         want_raw = want_webp or (output_format == "jxl_raw")
         event_type = self.MOOSHIE_CONTROLNET_PREPROCESSOR_EVENT_TYPE if output_role == "controlnet_preprocessor" else self.MOOSHIE_EVENT_TYPE
 
@@ -562,6 +566,9 @@ class MooshieSaveImage:
             if want_webp:
                 _, image_bytes = self._encode_raw(frame, "8bit")
                 fmt_tag = self.FMT_RAW_RGBA8_WEBP
+            elif want_jpeg:
+                _, image_bytes = self._encode_raw(frame, "8bit")
+                fmt_tag = self.FMT_RAW_RGBA8_JPEG
             elif want_raw:
                 fmt_tag, image_bytes = self._encode_raw(frame, bit_depth)
             elif bit_depth == "16bit":
@@ -1105,6 +1112,50 @@ class MooshieFaceDetect:
         return {"ui": {"text": [json.dumps(payload)]}}
 
 
+class MooshieKarrasSigmas:
+    """Karras noise ladder with a user-chosen rho.
+
+    ComfyUI's karras handler hardcodes `rho = 7`, so the curvature of the
+    schedule is not reachable through the scheduler list at all. This rebuilds
+    the same ladder from the model's own sigma range with the requested rho,
+    and applies BasicScheduler's img2img denoise slicing so a partial schedule
+    still starts where it should end up.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "model": ("MODEL",),
+                "steps": ("INT", {"default": 20, "min": 1, "max": 10000}),
+                "denoise": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "rho": ("FLOAT", {"default": 7.0, "min": 1.0, "max": 20.0, "step": 0.1}),
+            }
+        }
+
+    RETURN_TYPES = ("SIGMAS",)
+    FUNCTION = "build"
+    CATEGORY = "mooshie/sampling"
+
+    def build(self, model, steps, denoise, rho):
+        if rho <= 0:
+            raise ValueError("Karras rho must be greater than zero")
+        if denoise <= 0:
+            return (torch.empty(0, dtype=torch.float32),)
+
+        model_sampling = model.get_model_object("model_sampling")
+        total_steps = steps if denoise >= 1.0 else int(steps / denoise)
+        sigmas = get_sigmas_karras(
+            total_steps,
+            float(model_sampling.sigma_min),
+            float(model_sampling.sigma_max),
+            rho=float(rho),
+        ).cpu()
+        # Keep the tail: for denoise < 1.0 the partial schedule is the low
+        # noise end, which is what BasicScheduler slices to as well.
+        return (sigmas[-(steps + 1):],)
+
+
 class MooshieSigmaTail:
     """Schedule for the remaining steps of a paused run.
 
@@ -1399,6 +1450,7 @@ NODE_CLASS_MAPPINGS = {
     "MooshieYuE2Music": MooshieYuE2Music,
     "MooshieMusicLoadAudio": MooshieMusicLoadAudio,
     "MooshieSigmaTail": MooshieSigmaTail,
+    "MooshieKarrasSigmas": MooshieKarrasSigmas,
     "MooshieResumeEdit": MooshieResumeEdit,
     "MooshieFaceDetailer": MooshieFaceDetailer,
     "MooshieFaceDetect": MooshieFaceDetect,
@@ -1426,6 +1478,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "MooshieYuE2Music": "Mooshie YuE2 Music and Status",
     "MooshieMusicLoadAudio": "Mooshie Temporary Cover Audio",
     "MooshieSigmaTail": "Mooshie Sigma Tail (resume)",
+    "MooshieKarrasSigmas": "Mooshie Karras Sigmas (rho)",
     "MooshieResumeEdit": "Mooshie Resume Edit (paused latent)",
     "MooshieFaceDetailer": "Mooshie Face Detailer",
     "MooshieFaceDetect": "Mooshie Face Detect",

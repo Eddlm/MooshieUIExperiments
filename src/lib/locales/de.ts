@@ -2695,6 +2695,9 @@ const de: Record<string, string> = {
   "generation.sampler.format_jxl": "JXL",
 
   "generation.sampler.format_webp": "WebP",
+  "generation.sampler.format_jpeg": "JPEG",
+  "generation.sampler.karras_rho": "Karras-Rho",
+  "generation.sampler.karras_rho_tip": "Krümmung des Karras-Rauschverlaufs — nur wirksam, wenn der Scheduler karras ist. Kleinere Werte verteilen die Schritte gleichmäßiger, größere verschieben sie zum verrauschten Ende. 7.0 ist der Standard von ComfyUI.",
   "gallery.toast.right_click_copy": "Rechtsklick auf das Bild und „Bild kopieren“ wählen",
   "modelhub.pick_dir.title": "Installationsverzeichnis auswählen",
   "modelhub.pick_dir.description": "Wählen Sie das Verzeichnis, in das dieses Modell installiert werden soll.",

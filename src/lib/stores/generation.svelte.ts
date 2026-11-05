@@ -749,6 +749,8 @@ class GenerationStore {
   loras = $state<LoraEntry[]>([]);
   samplerName = $state("euler_cfg_pp");
   scheduler = $state("sgm_uniform");
+  /** Karras ladder curvature; ignored unless the scheduler is "karras". */
+  karrasRho = $state(7);
   #steps = $state(20);
 
   /**
@@ -947,7 +949,7 @@ class GenerationStore {
   facefixAutoPrompt = $state(false);
   outputBitDepth = $state<"8bit" | "16bit">("8bit");
   /** WebP is lossless VP8L and always 8-bit (no 16-bit VP8L variant exists). */
-  outputFormat = $state<"png" | "jxl" | "webp">("png");
+  outputFormat = $state<"png" | "jxl" | "webp" | "jpeg">("png");
   metadataMode = $state<"text_chunk" | "stealth" | "both">("both");
   autoQualityTags = $state(true);
   /** UI-reveal toggle for the custom quality tags editor (values apply based on autoQualityTags). */
@@ -3253,7 +3255,10 @@ class GenerationStore {
     if (savedMode !== "video") this.lastImageMode = savedMode;
     this.applyModeToggleState(this.modeToggles[savedMode] ?? defaultModeToggleState());
     if (saved.outputBitDepth) this.outputBitDepth = saved.outputBitDepth;
-    if (saved.outputFormat === "png" || saved.outputFormat === "jxl" || saved.outputFormat === "webp") this.outputFormat = saved.outputFormat;
+    if (saved.outputFormat === "png" || saved.outputFormat === "jxl" || saved.outputFormat === "webp" || saved.outputFormat === "jpeg") this.outputFormat = saved.outputFormat;
+    // Clamped on the way in: the backend rejects an out-of-range rho outright,
+    // so a stale saved value would fail every generation instead of degrading.
+    if (typeof saved.karrasRho === "number" && saved.karrasRho >= 1 && saved.karrasRho <= 20) this.karrasRho = saved.karrasRho;
     if (saved.metadataMode) this.metadataMode = saved.metadataMode;
     if (saved.autoQualityTags !== undefined) this.autoQualityTags = saved.autoQualityTags;
     if (saved.customQualityTagsEnabled !== undefined) this.customQualityTagsEnabled = saved.customQualityTagsEnabled;
@@ -3418,6 +3423,7 @@ class GenerationStore {
         facefixAutoPrompt: this.facefixAutoPrompt,
         outputBitDepth: this.outputBitDepth,
         outputFormat: this.outputFormat,
+        karrasRho: this.karrasRho,
         metadataMode: this.metadataMode,
         autoQualityTags: this.autoQualityTags,
         customQualityTagsEnabled: this.customQualityTagsEnabled,
@@ -3593,6 +3599,7 @@ class GenerationStore {
       facefixAutoPrompt: this.facefixAutoPrompt,
       outputBitDepth: this.outputBitDepth,
       outputFormat: this.outputFormat,
+      karrasRho: this.karrasRho,
       metadataMode: this.metadataMode,
       autoQualityTags: this.autoQualityTags,
       customQualityTagsEnabled: this.customQualityTagsEnabled,
@@ -4335,6 +4342,7 @@ class GenerationStore {
       is_vpred_model: signalsIndicateVPred(this.modelFamilySignals()),
       output_bit_depth: this.outputBitDepth,
       output_format: this.outputFormat,
+      karras_rho: this.scheduler === "karras" ? this.karrasRho : null,
       style_transfer_enabled: this.styleTransferEnabled,
       style_reference_image: this.styleReferenceImage,
       style_transfer_low_scale_end: this.styleTransferLowScaleEnd,

@@ -35,6 +35,14 @@ use crate::comfyui::types::{BaseSources, GenerationParams, PromptSegment, StageC
 pub fn validate_generation_params(params: &GenerationParams) -> Result<(), String> {
     validate_pause_resume(params)?;
 
+    // Karras rho is a ladder curvature, so an out-of-range value cannot be
+    // clamped meaningfully — reject it instead of quietly sampling at 7.
+    if let Some(rho) = params.karras_rho {
+        if !rho.is_finite() || !(1.0..=20.0).contains(&rho) {
+            return Err("Karras rho must be between 1 and 20.".into());
+        }
+    }
+
     // Video mode has its own parameter set; validate it and return early so
     // image-only guards (input images, ControlNet, style transfer) never
     // fire on stale image-mode state.
@@ -499,7 +507,7 @@ fn sampler_discards_penultimate_sigma(sampler: &str) -> bool {
     )
 }
 
-fn pause_schedule_settings(params: &GenerationParams) -> [(&'static str, String); 3] {
+fn pause_schedule_settings(params: &GenerationParams) -> [(&'static str, String); 4] {
     [
         ("steps", params.steps.to_string()),
         ("scheduler", params.scheduler.clone()),
@@ -507,6 +515,7 @@ fn pause_schedule_settings(params: &GenerationParams) -> [(&'static str, String)
             "sampler noise schedule",
             sampler_discards_penultimate_sigma(&params.sampler_name).to_string(),
         ),
+        ("karras rho", params.karras_rho_or_default().to_string()),
     ]
 }
 
@@ -545,6 +554,19 @@ fn validate_pause_resume(params: &GenerationParams) -> Result<(), String> {
         .first()
         .map(|stage| stage.params.as_ref())
         .unwrap_or(params);
+
+    // A paused stage samples its own KSamplerAdvanced schedule, which takes a
+    // scheduler *name* and therefore cannot carry a custom rho. Refuse rather
+    // than sample the resumed part at the stock curvature.
+    if first.karras_rho_active()
+        && (!params.resume_stages.is_empty() || params.pause_at_step.is_some())
+    {
+        return Err(
+            "Karras rho cannot be used with a paused or resumed run: a paused stage rebuilds its own schedule and would ignore it. Discard the paused run to change the curvature."
+                .to_string(),
+        );
+    }
+
     let schedule_steps = first.steps;
     let locked = pause_locked_settings(first);
     let schedule = pause_schedule_settings(first);
@@ -1344,6 +1366,7 @@ fn finish_workflow(mut result: WorkflowResult, params: &GenerationParams, seed: 
         let output_format = match params.output_format.as_str() {
             "jxl" => "jxl_raw",
             "webp" => "webp_raw",
+            "jpeg" => "jpeg_raw",
             _ => "png",
         };
         result.workflow.insert(
@@ -1378,6 +1401,7 @@ fn finish_workflow(mut result: WorkflowResult, params: &GenerationParams, seed: 
     let output_format = match params.output_format.as_str() {
         "jxl" => "jxl_raw",
         "webp" => "webp_raw",
+        "jpeg" => "jpeg_raw",
         _ => "png",
     };
     result.workflow.insert(
@@ -2884,6 +2908,53 @@ mod tests {
         let workflow = workflow.as_object().unwrap();
         assert_eq!(nodes_of_class(workflow, "KSampler").len(), 1);
         assert!(nodes_of_class(workflow, "KSamplerAdvanced").is_empty());
+    }
+
+    #[test]
+    fn non_stock_karras_rho_samples_an_explicit_ladder() {
+        let mut params = pausable_params();
+        params.scheduler = "karras".to_string();
+        params.karras_rho = Some(12.0);
+        validate_generation_params(&params).expect("rho 12 is inside the range");
+
+        let workflow = build_workflow(&params, 42, false);
+        let workflow = workflow.as_object().unwrap();
+
+        // A plain KSampler takes a scheduler *name*, so a custom curvature can
+        // only arrive as an explicit ladder.
+        assert!(nodes_of_class(workflow, "KSampler").is_empty());
+        let custom = nodes_of_class(workflow, "SamplerCustom");
+        assert_eq!(custom.len(), 1);
+        let inputs = &custom[0].1["inputs"];
+        assert_eq!(inputs["add_noise"], json!(true));
+
+        let sigmas_id = inputs["sigmas"][0].as_str().unwrap();
+        let sigmas = &workflow[sigmas_id];
+        assert_eq!(sigmas["class_type"], json!("MooshieKarrasSigmas"));
+        assert_eq!(sigmas["inputs"]["rho"], json!(12.0));
+        assert_eq!(sigmas["inputs"]["steps"], json!(params.steps));
+    }
+
+    #[test]
+    fn stock_karras_rho_keeps_the_plain_ksampler() {
+        let mut params = pausable_params();
+        params.scheduler = "karras".to_string();
+
+        let workflow = build_workflow(&params, 42, false);
+        let workflow = workflow.as_object().unwrap();
+        assert_eq!(nodes_of_class(workflow, "KSampler").len(), 1);
+        assert!(nodes_of_class(workflow, "MooshieKarrasSigmas").is_empty());
+    }
+
+    #[test]
+    fn karras_rho_is_refused_with_a_paused_run() {
+        let mut params = pausable_params();
+        params.scheduler = "karras".to_string();
+        params.karras_rho = Some(10.0);
+        params.pause_at_step = Some(5);
+
+        let err = validate_generation_params(&params).unwrap_err();
+        assert!(err.contains("Karras rho"), "{err}");
     }
 
     #[test]
